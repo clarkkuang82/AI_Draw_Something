@@ -22,6 +22,16 @@ Packages/
                                   #   - 内置 sketches.json 种子集（6 类 × 1 张）
   Networking/                     # SSEStream + DirectGuessClient（BYOK，直连模型 API）
   Persistence/                    # Keychain + UserDefaults helper
+Worker/                           # Cloudflare Worker（生产路径，未来替换 BYOK）
+  src/
+    index.ts                      # 路由 + 防滥用栈
+    schema.ts                     # zod 形状锁
+    provider.ts + anthropic.ts + openai.ts + parser.ts
+    sse.ts                        # 下行 SSE 通道（仅 guess/final/giveUp）
+    attest/verify.ts              # App Attest 验证（attestation + assertion）
+    durable/{nonce,ratelimit,entitlement}.ts
+  test/                           # vitest（22 用例）
+  wrangler.toml
 ```
 
 ## 在 Xcode 里跑起来
@@ -71,9 +81,32 @@ Packages/
 ```bash
 # 跑 GameCore 单测（在 Packages/GameCore 下）
 cd Packages/GameCore && swift test
+
+# 跑 Worker 测试 + 类型检查
+cd Worker
+npm install
+npx tsc --noEmit
+npx vitest run
 ```
 
 iOS UI 必须在 Xcode + macOS 上跑，本仓库里的命令行工具链不能编译 PencilKit / SwiftUI iOS 部分。
+
+## Worker 部署（生产路径，可选）
+
+MVP 不需要 Worker 也能跑（BYOK 直连）。要切到 Attest+Worker 模式：
+
+```bash
+cd Worker
+npx wrangler kv:namespace create "KV"     # 把返回的 id 填进 wrangler.toml
+npx wrangler secret put ANTHROPIC_API_KEY # 粘贴 key
+npx wrangler secret put OPENAI_API_KEY    # 可选
+npx wrangler secret put REFERRAL_HMAC_SECRET
+npx wrangler secret put DEV_BYPASS_SECRET # 仅 ENV=dev 时生效
+npx wrangler deploy
+```
+
+然后修改 `wrangler.toml` 里的 `APPLE_TEAM_ID` 和 `APPLE_BUNDLE_ID`。
+iOS 端把 `DirectGuessClient` 换成（待写的）`AttestedGuessClient`，指向部署后的 Worker URL。
 
 ## License & Attribution
 
