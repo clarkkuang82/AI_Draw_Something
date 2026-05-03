@@ -41,6 +41,7 @@ struct RootView: View {
                         ProgressView()
                     case .gameOver(let score):
                         GameOverScreen(score: score, again: { startTapped() })
+                            .onAppear { Task { await services.leaderboard?.submit(score: score.total) } }
                     }
                 }
                 .padding()

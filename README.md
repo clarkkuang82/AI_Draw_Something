@@ -29,6 +29,7 @@ Packages/
   Persistence/                    # Keychain + UserDefaults helper
   Attest/                         # AttestService（DCAppAttestService 包装）+ NonceClient
   Commerce/                       # IAPStore（StoreKit 2）+ EntitlementStore + ReferralFlow + PaywallView
+  Leaderboard/                    # GameCenter 排行榜（aidraw.score.v1）
 Worker/                           # Cloudflare Worker（生产路径，未来替换 BYOK）
   src/
     index.ts                      # 路由 + 防滥用栈

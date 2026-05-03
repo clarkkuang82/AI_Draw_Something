@@ -6,6 +6,9 @@ import Attest
 #if canImport(StoreKit)
 import Commerce
 #endif
+#if canImport(GameKit)
+import Leaderboard
+#endif
 
 /// One place to wire dependencies. Switch behavior based on whether the
 /// app was built with a Worker URL (Info.plist key `WorkerBaseURL`).
@@ -16,6 +19,7 @@ public struct AppServices {
     public let entitlementStore: EntitlementStore?
     public let iapStore: IAPStore?
     public let referralFlow: ReferralFlow?
+    public let leaderboard: LeaderboardService?
     public let isAttestedMode: Bool
 
     @MainActor
@@ -52,6 +56,13 @@ public struct AppServices {
             self.referralFlow = nil
             self.isAttestedMode = false
         }
+        #if canImport(GameKit)
+        let lb = LeaderboardService()
+        lb.authenticate()
+        self.leaderboard = lb
+        #else
+        self.leaderboard = nil
+        #endif
         if let raw = UserDefaults.standard.string(forKey: SettingsKey.providerHint),
            let hint = ProviderHint(rawValue: raw) {
             gameStore.providerHint = hint
