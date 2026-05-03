@@ -1,0 +1,28 @@
+# macOS / Xcode
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Secrets — DO NOT commit
+Secrets.xcconfig
+*.p8
+*.p12
+
+# Worker (future)
+Worker/node_modules/
+Worker/.wrangler/
+Worker/dist/
+
+# Editors
+.vscode/
+.idea/
