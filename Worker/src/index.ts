@@ -39,17 +39,23 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     try {
-      if (req.method === "POST" && url.pathname === "/v1/nonce") return nonceRoute(req, env);
-      if (req.method === "POST" && url.pathname === "/v1/attest/register") return attestRegisterRoute(req, env);
-      if (req.method === "GET"  && url.pathname === "/v1/entitlements") return entitlementsRoute(req, env);
-      if (req.method === "POST" && url.pathname === "/v1/guess") return guessRoute(req, env, ctx);
-      if (req.method === "POST" && url.pathname === "/v1/iap/redeem") return iapRedeemAttested(req, env);
-      if (req.method === "POST" && url.pathname === "/v1/iap/webhook") return iapWebhookRoute(req, env);
-      if (req.method === "POST" && url.pathname === "/v1/referral/code") return referralCodeAttested(req, env);
-      if (req.method === "POST" && url.pathname === "/v1/referral/redeem") return referralRedeemAttested(req, env);
+      // Each branch awaits so the outer try/catch can intercept async errors
+      // (especially zod parse errors) and turn them into a 400 response
+      // instead of a workerd-level uncaught rejection.
+      if (req.method === "POST" && url.pathname === "/v1/nonce") return await nonceRoute(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/attest/register") return await attestRegisterRoute(req, env);
+      if (req.method === "GET"  && url.pathname === "/v1/entitlements") return await entitlementsRoute(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/guess") return await guessRoute(req, env, ctx);
+      if (req.method === "POST" && url.pathname === "/v1/iap/redeem") return await iapRedeemAttested(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/iap/webhook") return await iapWebhookRoute(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/referral/code") return await referralCodeAttested(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/referral/redeem") return await referralRedeemAttested(req, env);
       if (req.method === "GET"  && url.pathname === "/v1/health") return jsonResponse({ ok: true });
       return errorResponse("not_found", 404);
     } catch (err) {
+      if (err instanceof z.ZodError) {
+        return errorResponse("bad_request", 400, err.message);
+      }
       const msg = err instanceof Error ? err.message : String(err);
       return errorResponse("internal", 500, msg);
     }

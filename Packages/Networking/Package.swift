@@ -13,5 +13,6 @@ let package = Package(
     ],
     targets: [
         .target(name: "Networking", dependencies: ["GameCore", "Attest"]),
+        .testTarget(name: "NetworkingTests", dependencies: ["Networking"]),
     ]
 )

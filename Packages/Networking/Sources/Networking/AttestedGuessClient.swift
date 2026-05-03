@@ -82,24 +82,20 @@ public struct AttestedGuessClient: GuessClient {
     private func buildBody(imageJpeg: Data,
                            hintCategoryId: String,
                            provider: ProviderHint) async throws -> Body {
-        let payload = GuessPayload(
+        let payload = CanonicalGuessPayload(
             hintCategory: hintCategoryId,
             imageBase64: imageJpeg.base64EncodedString(),
-            provider: provider.rawValue,
+            provider: provider,
             roundId: UUID().uuidString.lowercased(),
-            sessionId: UUID().uuidString.lowercased(),
-            v: 1
+            sessionId: UUID().uuidString.lowercased()
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let payloadBytes = try encoder.encode(payload)
-
+        let payloadBytes = try payload.encodedBytes()
         let signature = try await attest.signAssertion(payload: payloadBytes)
 
-        // Build the on-the-wire body: payload fields + attestation field.
-        // We can't just nest `payload` because we also need to keep the bytes
-        // identical to what was signed. So we *re-emit* the same fields with
-        // `attestation` appended; sortedKeys handles ordering.
+        // On-the-wire body: payload fields + attestation. sortedKeys handles
+        // ordering. The Worker reconstructs canonical bytes by stripping the
+        // attestation field and re-encoding alphabetically — so we must
+        // produce identical key/value pairs for the canonical fields.
         var dict: [String: Any] = [
             "v": payload.v,
             "sessionId": payload.sessionId,
@@ -115,15 +111,6 @@ public struct AttestedGuessClient: GuessClient {
 
         let bodyBytes = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
         return Body(bytes: bodyBytes, devBypassHmac: signature.devBypassHmac)
-    }
-
-    private struct GuessPayload: Encodable {
-        let hintCategory: String
-        let imageBase64: String
-        let provider: String
-        let roundId: String
-        let sessionId: String
-        let v: Int
     }
 }
 
