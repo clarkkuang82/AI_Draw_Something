@@ -27,6 +27,9 @@ import {
   verifyAttestation,
   type VerifiedAttestation,
 } from "./attest/verify.js";
+import { iapRedeemRoute, iapWebhookRoute } from "./iap/index.js";
+import { referralCodeRoute, referralRedeemRoute } from "./referral.js";
+import { z } from "zod";
 
 export { NonceDO } from "./durable/nonce.js";
 export { RateLimitDO } from "./durable/ratelimit.js";
@@ -40,6 +43,10 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/attest/register") return attestRegisterRoute(req, env);
       if (req.method === "GET"  && url.pathname === "/v1/entitlements") return entitlementsRoute(req, env);
       if (req.method === "POST" && url.pathname === "/v1/guess") return guessRoute(req, env, ctx);
+      if (req.method === "POST" && url.pathname === "/v1/iap/redeem") return iapRedeemAttested(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/iap/webhook") return iapWebhookRoute(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/referral/code") return referralCodeAttested(req, env);
+      if (req.method === "POST" && url.pathname === "/v1/referral/redeem") return referralRedeemAttested(req, env);
       if (req.method === "GET"  && url.pathname === "/v1/health") return jsonResponse({ ok: true });
       return errorResponse("not_found", 404);
     } catch (err) {
@@ -227,8 +234,18 @@ interface AttestCheck {
   signCount?: number;
 }
 
-async function verifyRequestAttest(
-  body: { attestation: { keyId: string; assertion: string; nonceId: string }; v: number; sessionId: string; roundId: string; hintCategory: string; provider: string; imageBase64: string },
+interface AttestationFields {
+  keyId: string;
+  assertion: string;
+  nonceId: string;
+}
+
+/// Verify an App Attest assertion over an arbitrary payload. Returns ok + new
+/// sign count, or a failure code. Routes call this with their canonicalized
+/// body bytes.
+async function verifyAttestForPayload(
+  attestation: AttestationFields,
+  payloadBytes: Uint8Array,
   env: Env,
   req: Request
 ): Promise<AttestCheck> {
@@ -236,28 +253,22 @@ async function verifyRequestAttest(
   if (env.ENV !== "prod" && env.DEV_BYPASS_SECRET) {
     const header = req.headers.get("x-dev-bypass");
     if (header) {
-      const expected = await hmacSHA256(env.DEV_BYPASS_SECRET, body.attestation.keyId);
+      const expected = await hmacSHA256(env.DEV_BYPASS_SECRET, attestation.keyId);
       const expectedHex = bytesToHex(expected);
-      if (header === expectedHex) {
-        return { ok: true, code: "dev_bypass" };
-      }
+      if (header === expectedHex) return { ok: true, code: "dev_bypass" };
       return { ok: false, code: "dev_bypass_invalid" };
     }
   }
 
-  const challenge = await consumeNonce(env, body.attestation.nonceId, "assert");
+  const challenge = await consumeNonce(env, attestation.nonceId, "assert");
   if (!challenge) return { ok: false, code: "nonce_invalid" };
 
-  const stored = await env.KV.get(`attest:key:${body.attestation.keyId}`, "json");
+  const stored = await env.KV.get(`attest:key:${attestation.keyId}`, "json");
   if (!stored) return { ok: false, code: "key_unknown" };
   const { publicKeyJwk, signCount } = stored as { publicKeyJwk: JsonWebKey; signCount: number };
 
-  // Reconstruct the exact bytes the client signed: the JSON body sans the
-  // `attestation` field (since the signature is over the canonical payload).
-  const payloadBytes = canonicalPayloadBytes(body);
-
   try {
-    const result = await verifyAssertion(body.attestation.assertion, {
+    const result = await verifyAssertion(attestation.assertion, {
       publicKeyJwk,
       payload: payloadBytes,
       challenge,
@@ -265,9 +276,8 @@ async function verifyRequestAttest(
       appBundleId: env.APPLE_BUNDLE_ID,
       lastSignCount: signCount,
     });
-    // Persist new sign count.
     await env.KV.put(
-      `attest:key:${body.attestation.keyId}`,
+      `attest:key:${attestation.keyId}`,
       JSON.stringify({ ...stored, signCount: result.newSignCount })
     );
     return { ok: true, code: "ok", signCount: result.newSignCount };
@@ -276,17 +286,100 @@ async function verifyRequestAttest(
   }
 }
 
+async function verifyRequestAttest(
+  body: { attestation: AttestationFields; v: number; sessionId: string; roundId: string; hintCategory: string; provider: string; imageBase64: string },
+  env: Env,
+  req: Request
+): Promise<AttestCheck> {
+  return verifyAttestForPayload(body.attestation, canonicalPayloadBytes(body), env, req);
+}
+
+// ---------------------------------------------------------------------------
+// IAP + referral attested wrappers
+// ---------------------------------------------------------------------------
+
+const IAPRedeemBodyZ = z
+  .object({
+    keyId: z.string().min(1).max(256),
+    jws: z.string().min(1).max(20_000),
+    attestation: z.object({
+      keyId: z.string(),
+      assertion: z.string(),
+      nonceId: z.string(),
+    }).strict(),
+  })
+  .strict();
+
+async function iapRedeemAttested(req: Request, env: Env): Promise<Response> {
+  const body = IAPRedeemBodyZ.parse(await readJsonBody(req, 32_000));
+  if (body.keyId !== body.attestation.keyId) return errorResponse("keyid_mismatch", 400);
+  const payload = canonicalIAPPayload(body);
+  const check = await verifyAttestForPayload(body.attestation, payload, env, req);
+  if (!check.ok) return errorResponse(check.code, 401, check.detail);
+  return iapRedeemRoute({ keyId: body.keyId, jws: body.jws }, env);
+}
+
+function canonicalIAPPayload(body: { keyId: string; jws: string }): Uint8Array {
+  const obj = { jws: body.jws, keyId: body.keyId };
+  return new TextEncoder().encode(JSON.stringify(obj));
+}
+
+const ReferralCodeBodyZ = z
+  .object({
+    keyId: z.string().min(1).max(256),
+    attestation: z.object({
+      keyId: z.string(),
+      assertion: z.string(),
+      nonceId: z.string(),
+    }).strict(),
+  })
+  .strict();
+
+const ReferralRedeemBodyZ = z
+  .object({
+    keyId: z.string().min(1).max(256),
+    code: z.string().min(4).max(12),
+    attestation: z.object({
+      keyId: z.string(),
+      assertion: z.string(),
+      nonceId: z.string(),
+    }).strict(),
+  })
+  .strict();
+
+async function referralCodeAttested(req: Request, env: Env): Promise<Response> {
+  const body = ReferralCodeBodyZ.parse(await readJsonBody(req, 4_096));
+  if (body.keyId !== body.attestation.keyId) return errorResponse("keyid_mismatch", 400);
+  const payload = new TextEncoder().encode(JSON.stringify({ keyId: body.keyId }));
+  const check = await verifyAttestForPayload(body.attestation, payload, env, req);
+  if (!check.ok) return errorResponse(check.code, 401, check.detail);
+  return referralCodeRoute(body.keyId, env);
+}
+
+async function referralRedeemAttested(req: Request, env: Env): Promise<Response> {
+  const body = ReferralRedeemBodyZ.parse(await readJsonBody(req, 4_096));
+  if (body.keyId !== body.attestation.keyId) return errorResponse("keyid_mismatch", 400);
+  const payload = new TextEncoder().encode(JSON.stringify({ code: body.code, keyId: body.keyId }));
+  const check = await verifyAttestForPayload(body.attestation, payload, env, req);
+  if (!check.ok) return errorResponse(check.code, 401, check.detail);
+  return referralRedeemRoute({ keyId: body.keyId, code: body.code }, env);
+}
+
 /// Canonicalize the request body for signing. Must match the iOS side bit-for-bit.
-/// We use a stable field order: v, sessionId, roundId, hintCategory, provider, imageBase64.
+/// Both sides sort keys alphabetically and emit compact JSON with no whitespace.
 function canonicalPayloadBytes(body: { v: number; sessionId: string; roundId: string; hintCategory: string; provider: string; imageBase64: string }): Uint8Array {
-  const stable = JSON.stringify({
-    v: body.v,
-    sessionId: body.sessionId,
-    roundId: body.roundId,
+  const obj: Record<string, unknown> = {
     hintCategory: body.hintCategory,
-    provider: body.provider,
     imageBase64: body.imageBase64,
-  });
+    provider: body.provider,
+    roundId: body.roundId,
+    sessionId: body.sessionId,
+    v: body.v,
+  };
+  // Keys are already inserted in alphabetical order; JSON.stringify preserves
+  // insertion order. iOS uses JSONEncoder.OutputFormatting.sortedKeys to
+  // produce the same serialization.
+  const stable = JSON.stringify(obj);
   return new TextEncoder().encode(stable);
 }
 

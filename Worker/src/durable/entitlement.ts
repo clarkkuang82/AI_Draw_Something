@@ -30,6 +30,9 @@ export class EntitlementDO extends DurableObject {
       case "/refund":        return Response.json(await this.refund(body));
       case "/recordSpend":   return Response.json(await this.recordSpend(body));
       case "/setReferralCode": return Response.json(await this.setReferralCode(body));
+      case "/applyIAP":      return Response.json(await this.applyIAP(body));
+      case "/markReferred":  return Response.json(await this.markReferred(body));
+      case "/awardReferral": return Response.json(await this.awardReferral(body));
       default: return new Response("not found", { status: 404 });
     }
   }
@@ -112,6 +115,45 @@ export class EntitlementDO extends DurableObject {
       await this.ctx.storage.put("e", e);
     }
     return { ok: true, entitlement: e };
+  }
+
+  private async applyIAP(body: any): Promise<{ ok: boolean; entitlement: Entitlement }> {
+    const e = await this.load({});
+    const productKind = body.productKind as "consumable" | "subscription";
+    if (productKind === "consumable") {
+      const credits = Number(body.credits) || 0;
+      e.paidCredits = Math.max(0, e.paidCredits + credits); // credits may be negative on REFUND
+    } else if (productKind === "subscription") {
+      const expiresAtMs = body.expiresAtMs;
+      if (typeof expiresAtMs === "number") {
+        e.subscriptionExpiresAt = expiresAtMs > 0 ? expiresAtMs : undefined;
+      }
+    }
+    await this.ctx.storage.put("e", e);
+    return { ok: true, entitlement: e };
+  }
+
+  private async markReferred(body: any): Promise<{ ok: boolean; entitlement: Entitlement; alreadyReferred: boolean }> {
+    const e = await this.load({});
+    if (e.referredBy) return { ok: false, entitlement: e, alreadyReferred: true };
+    e.referredBy = String(body.code ?? "");
+    e.paidCredits += Number(body.bonusCredits) || 0;
+    await this.ctx.storage.put("e", e);
+    return { ok: true, entitlement: e, alreadyReferred: false };
+  }
+
+  private async awardReferral(body: any): Promise<{ ok: boolean; entitlement: Entitlement; capped: boolean }> {
+    const e = await this.load({});
+    const credits = Number(body.credits) || 0;
+    const monthlyCap = Number(body.monthlyCap) || 250;
+    if (e.referralCreditsEarnedThisMonth + credits > monthlyCap) {
+      return { ok: false, entitlement: e, capped: true };
+    }
+    e.referralsConsumed += 1;
+    e.referralCreditsEarnedThisMonth += credits;
+    e.paidCredits += credits;
+    await this.ctx.storage.put("e", e);
+    return { ok: true, entitlement: e, capped: false };
   }
 }
 
