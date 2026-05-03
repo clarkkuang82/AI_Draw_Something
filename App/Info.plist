@@ -20,5 +20,16 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
+    <!-- Optional: when set, the app uses AttestedGuessClient + IAP/Paywall.
+         When empty/missing, falls back to the BYOK DirectGuessClient (MVP).
+         Set this to your deployed Cloudflare Worker URL, e.g.
+         "https://ai-draw-worker.<account>.workers.dev". -->
+    <key>WorkerBaseURL</key>
+    <string></string>
+    <!-- DEBUG-only: HMAC secret matching Worker's DEV_BYPASS_SECRET. Lets the
+         Simulator / Apple Silicon Mac skip App Attest (which they don't
+         support). Production builds ignore this entirely. -->
+    <key>DevBypassSecret</key>
+    <string></string>
 </dict>
 </plist>

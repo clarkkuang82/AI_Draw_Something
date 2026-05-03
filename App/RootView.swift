@@ -2,11 +2,17 @@ import SwiftUI
 import PencilKit
 import GameCore
 import Drawing
+#if canImport(Commerce)
+import Commerce
+#endif
 
 struct RootView: View {
-    let store: GameStore
+    let services: AppServices
     let dataset: QuickDrawDataset?
     @State private var showSettings = false
+    @State private var showPaywall = false
+
+    private var store: GameStore { services.gameStore }
 
     var body: some View {
         NavigationStack {
@@ -15,7 +21,10 @@ struct RootView: View {
                 Group {
                     switch store.phase {
                     case .idle:
-                        IdleScreen(start: { store.startGame() })
+                        IdleScreen(
+                            entitlementHUD: services.entitlementStore?.hudText,
+                            start: { startTapped() }
+                        )
                     case .loading:
                         ProgressView()
                     case .showWord(let round):
@@ -31,7 +40,7 @@ struct RootView: View {
                     case .roundOver:
                         ProgressView()
                     case .gameOver(let score):
-                        GameOverScreen(score: score, again: { store.startGame() })
+                        GameOverScreen(score: score, again: { startTapped() })
                     }
                 }
                 .padding()
@@ -49,13 +58,49 @@ struct RootView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsSheet(store: store)
             }
+            #if canImport(Commerce)
+            .sheet(isPresented: $showPaywall) {
+                if let iap = services.iapStore,
+                   let ent = services.entitlementStore,
+                   let ref = services.referralFlow {
+                    PaywallView(store: iap, entitlement: ent, referral: ref) {
+                        Task { await onPaywallDone() }
+                    }
+                }
+            }
+            #endif
         }
+    }
+
+    private func startTapped() {
+        Task {
+            #if canImport(Commerce)
+            if services.isAttestedMode, let ent = services.entitlementStore {
+                await ent.refresh()
+                if !ent.canStart {
+                    showPaywall = true
+                    return
+                }
+            }
+            #endif
+            store.startGame()
+        }
+    }
+
+    @MainActor
+    private func onPaywallDone() async {
+        #if canImport(Commerce)
+        if let ent = services.entitlementStore, ent.canStart {
+            store.startGame()
+        }
+        #endif
     }
 }
 
 // MARK: - Idle
 
 private struct IdleScreen: View {
+    let entitlementHUD: String?
     let start: () -> Void
     var body: some View {
         VStack(spacing: 32) {
@@ -64,6 +109,12 @@ private struct IdleScreen: View {
             Text("和 AI 轮流出题画画——AI 用 QuickDraw 笔画演示，你画的让 AI 来猜。")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+            if let entitlementHUD {
+                Text(entitlementHUD)
+                    .font(.callout)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+            }
             Button(action: start) {
                 Text("开始游戏")
                     .font(.title2.bold())

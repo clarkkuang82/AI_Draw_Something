@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "Networking",
+    name: "Commerce",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
-        .library(name: "Networking", targets: ["Networking"]),
+        .library(name: "Commerce", targets: ["Commerce"]),
     ],
     dependencies: [
-        .package(path: "../GameCore"),
+        .package(path: "../Networking"),
         .package(path: "../Attest"),
     ],
     targets: [
-        .target(name: "Networking", dependencies: ["GameCore", "Attest"]),
+        .target(name: "Commerce", dependencies: ["Networking", "Attest"]),
     ]
 )

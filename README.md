@@ -2,11 +2,15 @@
 
 iOS 单机猜词游戏：AI 用 QuickDraw 笔画演示让玩家猜，玩家画的图片由多模态模型来猜。
 
-**当前状态：MVP（无服务器，BYOK 测试游戏性）**
+**当前状态：双模式**
+- **MVP / BYOK 模式**：无服务器，用户在 Keychain 里粘贴 Anthropic 或 OpenAI key，App 直连模型 API
+- **生产 / Attested 模式**：iOS 走 App Attest 签名 → Cloudflare Worker → 模型 API；含付费 IAP（StoreKit 2）+ 邀请码
 
-完整设计见 `/root/.claude/plans/ai-draw-something-ios-api-key-squishy-narwhal.md`，
-包含 App Attest、Cloudflare Worker、StoreKit IAP、邀请码等生产级组件。本仓库
-当前只实现 MVP，验证核心循环。
+切换由 Info.plist 中的 `WorkerBaseURL` 决定：
+- 空 → BYOK
+- 填了 Worker URL → 启用 AppAttest + EntitlementStore + IAPStore + ReferralFlow + PaywallView
+
+完整设计见 `/root/.claude/plans/ai-draw-something-ios-api-key-squishy-narwhal.md`。
 
 ## 目录结构
 
@@ -20,8 +24,11 @@ Packages/
   GameCore/                       # 状态机、计分、出题、GuessClient 协议
   Drawing/                        # 笔画模型、QuickDraw 回放、PencilKit 包装、JPEG 导出
                                   #   - 内置 sketches.json 种子集（6 类 × 1 张）
-  Networking/                     # SSEStream + DirectGuessClient（BYOK，直连模型 API）
+  Networking/                     # SSEStream + DirectGuessClient（BYOK）+ AttestedGuessClient（生产）
+                                  # + EntitlementClient（额度 / IAP redeem / 邀请）
   Persistence/                    # Keychain + UserDefaults helper
+  Attest/                         # AttestService（DCAppAttestService 包装）+ NonceClient
+  Commerce/                       # IAPStore（StoreKit 2）+ EntitlementStore + ReferralFlow + PaywallView
 Worker/                           # Cloudflare Worker（生产路径，未来替换 BYOK）
   src/
     index.ts                      # 路由 + 防滥用栈
@@ -91,22 +98,41 @@ npx vitest run
 
 iOS UI 必须在 Xcode + macOS 上跑，本仓库里的命令行工具链不能编译 PencilKit / SwiftUI iOS 部分。
 
-## Worker 部署（生产路径，可选）
-
-MVP 不需要 Worker 也能跑（BYOK 直连）。要切到 Attest+Worker 模式：
+## Worker 部署（生产路径）
 
 ```bash
 cd Worker
-npx wrangler kv:namespace create "KV"     # 把返回的 id 填进 wrangler.toml
-npx wrangler secret put ANTHROPIC_API_KEY # 粘贴 key
-npx wrangler secret put OPENAI_API_KEY    # 可选
-npx wrangler secret put REFERRAL_HMAC_SECRET
-npx wrangler secret put DEV_BYPASS_SECRET # 仅 ENV=dev 时生效
+npx wrangler kv:namespace create "KV"        # 把返回的 id 填进 wrangler.toml
+npx wrangler secret put ANTHROPIC_API_KEY    # 粘贴 key
+npx wrangler secret put OPENAI_API_KEY       # 可选
+npx wrangler secret put REFERRAL_HMAC_SECRET # 任意 32 字节随机字符串
+npx wrangler secret put DEV_BYPASS_SECRET    # 仅 ENV=dev 时启用
 npx wrangler deploy
 ```
 
-然后修改 `wrangler.toml` 里的 `APPLE_TEAM_ID` 和 `APPLE_BUNDLE_ID`。
-iOS 端把 `DirectGuessClient` 换成（待写的）`AttestedGuessClient`，指向部署后的 Worker URL。
+`wrangler.toml` 中需要填实际的 `APPLE_TEAM_ID` 和 `APPLE_BUNDLE_ID`。
+
+切换 iOS App 到生产模式：在 `App/Info.plist` 把 `WorkerBaseURL` 改成你的 Worker URL，
+重新编译。`AppServices.init` 会自动选用 `AttestedGuessClient` + `IAPStore`，并在
+免费额度耗尽时弹 `PaywallView`。
+
+### IAP 商品配置
+
+App Store Connect 配置以下 ID（与 `Worker/src/iap/products.ts` 一致）：
+
+| ID | 类型 | 默认 |
+|---|---|---|
+| `com.aidraw.coins.20` | Consumable | +20 局 |
+| `com.aidraw.coins.100` | Consumable | +100 局 |
+| `com.aidraw.coins.500` | Consumable | +500 局 |
+| `com.aidraw.pro.month` | Auto-Renewable Subscription | 不限量 |
+
+### 邀请码
+
+- 每个 keyId 派生一个 6 位邀请码（HMAC，确定性）
+- 单 keyId 一辈子只能消费一个码（`referredBy` 一次性）
+- 邀请人单月 ≤ 250 邀请额度，被邀请人 +5 局，邀请人 +5 局
+- App Attest 限制了多机刷码的成本
 
 ## License & Attribution
 
