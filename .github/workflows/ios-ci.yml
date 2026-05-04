@@ -1,0 +1,36 @@
+name: iOS Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Packages/**'
+      - 'App/**'
+      - '.github/workflows/ios-ci.yml'
+  pull_request:
+    paths:
+      - 'Packages/**'
+      - 'App/**'
+      - '.github/workflows/ios-ci.yml'
+
+jobs:
+  swift-test:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - GameCore
+          - Networking
+          # Drawing/Persistence/Attest/Commerce/Leaderboard depend on
+          # iOS-only frameworks (PencilKit, DeviceCheck, StoreKit, GameKit).
+          # They `swift build` on macOS but their tests can't run from CLI;
+          # add iOS test plans via xcodebuild if needed in the future.
+    defaults:
+      run:
+        working-directory: Packages/${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: swift build -v 2>&1 | tail -200
+      - run: swift test 2>&1 | tail -300

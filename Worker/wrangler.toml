@@ -1,0 +1,40 @@
+name = "ai-draw-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Toggle for the DEBUG bypass header. Production deploys MUST set ENV="prod".
+[vars]
+ENV = "dev"
+APPLE_TEAM_ID = "REPLACE_ME"
+APPLE_BUNDLE_ID = "com.example.aidraw"
+FREE_DAILY = "3"
+DAILY_SPEND_USD_CAP = "5"
+
+# Anthropic + OpenAI keys are *secrets*, set via:
+#   wrangler secret put ANTHROPIC_API_KEY
+#   wrangler secret put OPENAI_API_KEY
+# Referral HMAC secret:
+#   wrangler secret put REFERRAL_HMAC_SECRET
+# Dev bypass HMAC (DEBUG only):
+#   wrangler secret put DEV_BYPASS_SECRET
+
+[[durable_objects.bindings]]
+name = "NONCE"
+class_name = "NonceDO"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMIT"
+class_name = "RateLimitDO"
+
+[[durable_objects.bindings]]
+name = "ENTITLEMENT"
+class_name = "EntitlementDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NonceDO", "RateLimitDO", "EntitlementDO"]
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

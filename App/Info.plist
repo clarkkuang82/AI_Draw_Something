@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>AI Draw</string>
+    <key>CFBundleName</key>
+    <string>AIDrawSomething</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <!-- Optional: when set, the app uses AttestedGuessClient + IAP/Paywall.
+         When empty/missing, falls back to the BYOK DirectGuessClient (MVP).
+         Set this to your deployed Cloudflare Worker URL, e.g.
+         "https://ai-draw-worker.<account>.workers.dev". -->
+    <key>WorkerBaseURL</key>
+    <string></string>
+    <!-- DEBUG-only: HMAC secret matching Worker's DEV_BYPASS_SECRET. Lets the
+         Simulator / Apple Silicon Mac skip App Attest (which they don't
+         support). Production builds ignore this entirely. -->
+    <key>DevBypassSecret</key>
+    <string></string>
+</dict>
+</plist>
