@@ -38,8 +38,10 @@ public struct Entitlement: Sendable, Codable, Equatable {
         } else {
             subscriptionExpiresAt = nil
         }
-        referralCode = try? c.decodeIfPresent(String.self, forKey: .referralCode)
-        referredBy = try? c.decodeIfPresent(String.self, forKey: .referredBy)
+        // try? + decode flattens to String?; try? + decodeIfPresent would
+        // produce String?? which can't assign to a String? property.
+        referralCode = try? c.decode(String.self, forKey: .referralCode)
+        referredBy = try? c.decode(String.self, forKey: .referredBy)
         referralsConsumed = (try? c.decode(Int.self, forKey: .referralsConsumed)) ?? 0
     }
 
