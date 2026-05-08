@@ -125,11 +125,19 @@ struct RootView: View {
                     if case .idle = store.phase {
                         EmptyView()
                     } else {
-                        HStack(spacing: 6) {
-                            Text("第 \(store.roundIndex)/\(store.totalRoundsThisGame)")
-                                .coralPill()
-                            if store.streak >= 2 {
-                                StreakBadge(streak: store.streak)
+                        Menu {
+                            Button(role: .destructive) {
+                                store.abandon()
+                            } label: {
+                                Label("结束游戏", systemImage: "xmark.circle")
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("第 \(store.roundIndex)/\(store.totalRoundsThisGame)")
+                                    .coralPill()
+                                if store.streak >= 2 {
+                                    StreakBadge(streak: store.streak)
+                                }
                             }
                         }
                     }
@@ -519,6 +527,8 @@ private struct AIDrawingScreen: View {
     @State private var wrongFlash: Bool = false
     @State private var wrongMessage: String? = nil
     @State private var replayKey: Int = 0
+    @State private var deadline: Date = .distantFuture
+    @Environment(\.scenePhase) private var scenePhase
 
     private var hintLevel: Int {
         let elapsed = Int(GameStore.aiDrawTimeLimit) - timeRemaining
@@ -626,11 +636,20 @@ private struct AIDrawingScreen: View {
         .onAppear {
             sketch = (try? dataset?.randomSketch(for: round.word.id))
             timeRemaining = Int(GameStore.aiDrawTimeLimit)
+            deadline = Date.now.addingTimeInterval(GameStore.aiDrawTimeLimit)
             ticker?.invalidate()
             ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
                 timeRemaining -= 1
                 if timeRemaining <= 0 { store.handleTimeout() }
             }
+        }
+        .onChange(of: scenePhase) { _, new in
+            // Resync after returning from background; iOS pauses the Timer
+            // during background, so the count would otherwise be stale.
+            guard new == .active else { return }
+            let remaining = max(0, Int(deadline.timeIntervalSinceNow.rounded()))
+            timeRemaining = remaining
+            if remaining == 0 { store.handleTimeout() }
         }
         .onDisappear { ticker?.invalidate() }
     }
@@ -701,6 +720,8 @@ private struct PlayerDrawingScreen: View {
     @State private var didSubmit = false
     @State private var cursorBlink = false
     @State private var blinkTimer: Timer?
+    @State private var deadline: Date = .distantFuture
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: DS.Space.sm) {
@@ -778,6 +799,7 @@ private struct PlayerDrawingScreen: View {
         }
         .onAppear {
             timeRemaining = Int(GameStore.playerDrawTimeLimit)
+            deadline = Date.now.addingTimeInterval(GameStore.playerDrawTimeLimit)
             ticker?.invalidate()
             ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
                 timeRemaining -= 1
@@ -793,6 +815,12 @@ private struct PlayerDrawingScreen: View {
             blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { _ in
                 cursorBlink.toggle()
             }
+        }
+        .onChange(of: scenePhase) { _, new in
+            guard new == .active else { return }
+            let remaining = max(0, Int(deadline.timeIntervalSinceNow.rounded()))
+            timeRemaining = remaining
+            if remaining == 0 { store.handleTimeout() }
         }
         .onDisappear {
             ticker?.invalidate()
@@ -1069,6 +1097,11 @@ private struct GameOverScreen: View {
                 total: score.total,
                 rounds: rounds.count,
                 correct: score.roundsCorrect
+            )
+            LifetimeStatsStore.record(
+                score: score.total,
+                correct: score.roundsCorrect,
+                rounds: rounds.count
             )
             if isPersonalBest { Haptics.success() }
         }

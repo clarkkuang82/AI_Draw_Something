@@ -19,6 +19,48 @@ public enum OnboardingState {
     }
 }
 
+public struct LifetimeStats: Sendable, Hashable {
+    public let gamesPlayed: Int
+    public let totalScore: Int
+    public let totalCorrect: Int
+    public let totalRounds: Int
+
+    public init(gamesPlayed: Int, totalScore: Int, totalCorrect: Int, totalRounds: Int) {
+        self.gamesPlayed = gamesPlayed
+        self.totalScore = totalScore
+        self.totalCorrect = totalCorrect
+        self.totalRounds = totalRounds
+    }
+}
+
+public enum LifetimeStatsStore {
+    private static let kGames = "ai.draw.lifetime.games"
+    private static let kScore = "ai.draw.lifetime.score"
+    private static let kCorrect = "ai.draw.lifetime.correct"
+    private static let kRounds = "ai.draw.lifetime.rounds"
+    private static var d: UserDefaults { .standard }
+
+    public static func current() -> LifetimeStats {
+        LifetimeStats(
+            gamesPlayed: d.integer(forKey: kGames),
+            totalScore: d.integer(forKey: kScore),
+            totalCorrect: d.integer(forKey: kCorrect),
+            totalRounds: d.integer(forKey: kRounds)
+        )
+    }
+
+    public static func record(score: Int, correct: Int, rounds: Int) {
+        d.set(d.integer(forKey: kGames) + 1, forKey: kGames)
+        d.set(d.integer(forKey: kScore) + score, forKey: kScore)
+        d.set(d.integer(forKey: kCorrect) + correct, forKey: kCorrect)
+        d.set(d.integer(forKey: kRounds) + rounds, forKey: kRounds)
+    }
+
+    public static func reset() {
+        for k in [kGames, kScore, kCorrect, kRounds] { d.removeObject(forKey: k) }
+    }
+}
+
 public enum GamePreferences {
     private static var defaults: UserDefaults { .standard }
 

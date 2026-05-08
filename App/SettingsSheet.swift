@@ -64,6 +64,30 @@ struct SettingsSheet: View {
                             )
                         }
 
+                        // — Lifetime stats —
+                        let stats = LifetimeStatsStore.current()
+                        if stats.gamesPlayed > 0 {
+                            SettingsSection(title: "累计统计",
+                                            caption: "本机所有游戏汇总。") {
+                                HStack(spacing: DS.Space.lg) {
+                                    StatColumn(label: "局数", value: "\(stats.gamesPlayed)")
+                                    StatColumn(label: "总分", value: "\(stats.totalScore)")
+                                    StatColumn(label: "猜中",
+                                               value: "\(stats.totalCorrect)/\(stats.totalRounds)")
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, DS.Space.md)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: DS.Radius.md).fill(DS.Color.canvas)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DS.Radius.md)
+                                        .stroke(DS.Color.hairline, lineWidth: 1)
+                                )
+                            }
+                        }
+
                         if let bestScore {
                             SettingsSection(title: "最佳成绩",
                                             caption: "本机最高分。点重置将清掉。") {
@@ -217,6 +241,23 @@ private struct SettingsSection<Content: View>: View {
                     .foregroundStyle(DS.Color.muted)
                     .lineSpacing(2)
             }
+        }
+    }
+}
+
+private struct StatColumn: View {
+    let label: String
+    let value: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(DS.Color.muted)
+            Text(value)
+                .font(DS.Typo.titleMD())
+                .foregroundStyle(DS.Color.ink)
+                .monospacedDigit()
         }
     }
 }
