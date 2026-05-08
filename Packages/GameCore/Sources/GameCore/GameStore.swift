@@ -19,6 +19,10 @@ public final class GameStore {
     public private(set) var wrongGuessNonce: Int = 0
     /// The most recent rejected guess text. Cleared on round transitions.
     public private(set) var lastWrongGuess: String? = nil
+    /// JPEG of the most recently submitted player drawing. Populated by
+    /// `submitPlayerDrawing(_:)`; the Reveal screen uses it to show what the
+    /// player drew. Cleared at the start of every new round.
+    public private(set) var lastPlayerDrawingJpeg: Data? = nil
     /// Consecutive correct rounds — feeds the streak multiplier.
     public private(set) var streak: Int = 0
     /// Skips remaining this game.
@@ -124,10 +128,27 @@ public final class GameStore {
     /// During `.playerDrawing`: drawing exported, send to model.
     public func submitPlayerDrawing(_ jpeg: Data) {
         guard case .playerDrawing(let round) = phase else { return }
+        lastPlayerDrawingJpeg = jpeg
         streamingTask?.cancel()
         let provider = providerHint
         streamingTask = Task { [weak self, guesser] in
             guard let self else { return }
+            // Watchdog: if no .final / .giveUp arrives within 35s
+            // (e.g. flaky network, model hung), treat the round as
+            // timed out so the UI doesn't sit forever on "等待 AI…".
+            let watchdog = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 35 * 1_000_000_000)
+                if Task.isCancelled { return }
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    if case .playerDrawing(let r) = self.phase {
+                        self.currentGuessText = "(AI 没回应，按超时处理)"
+                        self.streamingTask?.cancel()
+                        self.finishRound(with: .timedOut, round: r)
+                    }
+                }
+            }
+            defer { watchdog.cancel() }
             do {
                 let stream = guesser.streamGuess(
                     imageJpeg: jpeg,
@@ -228,6 +249,7 @@ public final class GameStore {
             return
         }
         lastWrongGuess = nil
+        lastPlayerDrawingJpeg = nil
         usedWordIds.insert(word.id)
         let round = Round(index: roundIndex, kind: kind, word: word)
         phase = .showWord(round)

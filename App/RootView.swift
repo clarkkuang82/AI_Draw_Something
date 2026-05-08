@@ -83,6 +83,7 @@ struct RootView: View {
                                          delta: store.lastDelta,
                                          multiplier: store.roundHistory.last?.multiplier ?? 1.0,
                                          score: store.score,
+                                         playerDrawingJpeg: store.lastPlayerDrawingJpeg,
                                          next: {
                                              store.acknowledgeReveal(); store.nextRound()
                                          })
@@ -222,15 +223,20 @@ struct RootView: View {
 // MARK: - Wordmark + streak badge
 
 private struct AppWordmark: View {
+    @State private var rotate: Bool = false
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "asterisk")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(DS.Color.ink)
+                .rotationEffect(.degrees(rotate ? 360 : 0))
+                .animation(.linear(duration: 12).repeatForever(autoreverses: false),
+                           value: rotate)
             Text("AI Draw")
                 .font(DS.Typo.titleSM())
                 .foregroundStyle(DS.Color.ink)
         }
+        .onAppear { rotate = true }
     }
 }
 
@@ -535,6 +541,8 @@ private struct AIDrawingScreen: View {
                     .disabled(store.skipsRemaining == 0)
                     .opacity(store.skipsRemaining == 0 ? 0.4 : 1)
             }
+            TimeBar(remaining: timeRemaining,
+                    total: Int(GameStore.aiDrawTimeLimit))
             ZStack(alignment: .bottomTrailing) {
                 Group {
                     if let sketch {
@@ -709,6 +717,8 @@ private struct PlayerDrawingScreen: View {
                 .font(DS.Typo.caption())
                 .foregroundStyle(timeRemaining <= 10 ? DS.Color.error : DS.Color.muted)
             }
+            TimeBar(remaining: timeRemaining,
+                    total: Int(GameStore.playerDrawTimeLimit))
             GeometryReader { geo in
                 PlayerCanvasView(drawing: $drawing)
                     .background(
@@ -804,12 +814,14 @@ private struct RevealScreen: View {
     let delta: Int
     let multiplier: Double
     let score: Score
+    let playerDrawingJpeg: Data?
     let next: () -> Void
 
     @State private var displayedTotal: Int = 0
     @State private var autoAdvance: Double = 0
     @State private var advanceTimer: Timer?
     private let advanceWindow: TimeInterval = 4.0
+    @State private var showConfetti: Bool = false
 
     var body: some View {
         VStack(spacing: DS.Space.lg) {
@@ -830,6 +842,26 @@ private struct RevealScreen: View {
                 Text(round.word.text)
                     .font(DS.Typo.displaySM())
                     .foregroundStyle(DS.Color.ink)
+            }
+            // Show what the player drew when this was a playerDraws round.
+            if round.kind == .playerDraws,
+               let jpeg = playerDrawingJpeg,
+               let uiImage = UIImage(data: jpeg) {
+                VStack(spacing: 6) {
+                    Text("你画的").font(DS.Typo.caption()).foregroundStyle(DS.Color.muted)
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 180, maxHeight: 180)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.Radius.md)
+                                .fill(DS.Color.surfaceCard)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radius.md)
+                                .stroke(DS.Color.hairline, lineWidth: 1)
+                        )
+                }
             }
             // Delta with optional streak multiplier badge.
             VStack(spacing: 6) {
@@ -884,10 +916,22 @@ private struct RevealScreen: View {
                 .foregroundStyle(DS.Color.muted)
         }
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .top) {
+            if showConfetti, isWin {
+                ConfettiOverlay()
+                    .allowsHitTesting(false)
+            }
+        }
         .onAppear {
             displayedTotal = score.total - delta
             withAnimation(.easeOut(duration: 0.6)) {
                 displayedTotal = score.total
+            }
+            if isWin {
+                showConfetti = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+                    showConfetti = false
+                }
             }
             // Auto-advance after `advanceWindow` seconds. The user can tap to
             // skip the wait. Progress fills the button as a visual cue.
@@ -1102,4 +1146,76 @@ private struct RoundResultRow: View {
         case .skipped: return DS.Color.muted
         }
     }
+}
+
+// MARK: - Confetti
+
+private struct ConfettiOverlay: View {
+    private let pieces: [ConfettiPiece] = (0..<28).map { _ in
+        ConfettiPiece(
+            x: CGFloat.random(in: 0.05...0.95),
+            delay: Double.random(in: 0...0.6),
+            duration: Double.random(in: 1.4...2.2),
+            symbol: ["🎉", "✨", "🎊", "⭐️", "🌟"].randomElement() ?? "🎉",
+            rotation: Double.random(in: -180...180)
+        )
+    }
+    @State private var fall: Bool = false
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                ForEach(pieces) { p in
+                    Text(p.symbol)
+                        .font(.system(size: 24))
+                        .position(
+                            x: p.x * geo.size.width,
+                            y: fall ? geo.size.height + 30 : -30
+                        )
+                        .rotationEffect(.degrees(fall ? p.rotation : 0))
+                        .opacity(fall ? 0 : 1)
+                        .animation(
+                            .easeIn(duration: p.duration).delay(p.delay),
+                            value: fall
+                        )
+                }
+            }
+        }
+        .onAppear { fall = true }
+    }
+}
+
+private struct TimeBar: View {
+    let remaining: Int
+    let total: Int
+    private var progress: Double {
+        guard total > 0 else { return 0 }
+        return max(0, min(1, Double(remaining) / Double(total)))
+    }
+    private var color: Color {
+        if remaining <= 5 { return DS.Color.error }
+        if remaining <= 15 { return DS.Color.accentAmber }
+        return DS.Color.primary
+    }
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(DS.Color.hairline)
+                Capsule()
+                    .fill(color)
+                    .frame(width: geo.size.width * progress)
+                    .animation(.linear(duration: 0.3), value: progress)
+            }
+        }
+        .frame(height: 4)
+    }
+}
+
+private struct ConfettiPiece: Identifiable {
+    let id = UUID()
+    let x: CGFloat
+    let delay: Double
+    let duration: Double
+    let symbol: String
+    let rotation: Double
 }
