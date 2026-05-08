@@ -135,6 +135,19 @@ public enum HapticsPreference {
     }
 }
 
+public enum SoundPreference {
+    private static let key = "ai.draw.sound.enabled"
+    private static var defaults: UserDefaults { .standard }
+    /// Defaults OFF — system sounds in the AI-draw context can be jarring,
+    /// and many users have phones on silent. Opt-in.
+    public static var isEnabled: Bool {
+        defaults.object(forKey: key) as? Bool ?? false
+    }
+    public static func set(_ enabled: Bool) {
+        defaults.set(enabled, forKey: key)
+    }
+}
+
 public enum APIKeyStore {
     public static let service = "com.aidraw.byok"
     /// Returns the user-supplied Anthropic key, if any.

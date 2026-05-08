@@ -9,6 +9,7 @@ struct SettingsSheet: View {
     @State private var openAIKey: String = APIKeyStore.openAIKey() ?? ""
     @State private var provider: ProviderHint = .anthropic
     @State private var hapticsEnabled: Bool = HapticsPreference.isEnabled
+    @State private var soundEnabled: Bool = SoundPreference.isEnabled
     @State private var bestScore: BestScoreRecord? = BestScoreStore.current()
     @State private var showResetConfirm = false
     @State private var showHowToPlay = false
@@ -40,28 +41,13 @@ struct SettingsSheet: View {
                             .pickerStyle(.segmented)
                         }
 
-                        // — 触觉 / 最佳成绩 —
+                        // — 触觉 / 音效 / 最佳成绩 —
                         SettingsSection(title: "玩法",
-                                        caption: "震动反馈在猜对/猜错/超时时给你触觉提示。") {
-                            HStack {
-                                Text("震动反馈")
-                                    .font(DS.Typo.bodyMD())
-                                    .foregroundStyle(DS.Color.ink)
-                                Spacer()
-                                Toggle("", isOn: $hapticsEnabled)
-                                    .labelsHidden()
-                                    .tint(DS.Color.primary)
+                                        caption: "震动 + 音效在猜对、猜错、超时时给你反馈。音效默认关闭。") {
+                            VStack(spacing: DS.Space.xs) {
+                                ToggleRow(label: "震动反馈", isOn: $hapticsEnabled)
+                                ToggleRow(label: "音效", isOn: $soundEnabled)
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .frame(height: 44)
-                            .background(
-                                RoundedRectangle(cornerRadius: DS.Radius.md).fill(DS.Color.canvas)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: DS.Radius.md)
-                                    .stroke(DS.Color.hairline, lineWidth: 1)
-                            )
                         }
 
                         // — Lifetime stats —
@@ -195,6 +181,7 @@ struct SettingsSheet: View {
                 Text("这会清掉本机记录的最高分。GameCenter 上的成绩不受影响。")
             }
             .onChange(of: hapticsEnabled) { _, new in HapticsPreference.set(new) }
+            .onChange(of: soundEnabled) { _, new in SoundPreference.set(new) }
             .onAppear {
                 if let raw = UserDefaults.standard.string(forKey: SettingsKey.providerHint),
                    let hint = ProviderHint(rawValue: raw) {
@@ -242,6 +229,32 @@ private struct SettingsSection<Content: View>: View {
                     .lineSpacing(2)
             }
         }
+    }
+}
+
+private struct ToggleRow: View {
+    let label: String
+    @Binding var isOn: Bool
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(DS.Typo.bodyMD())
+                .foregroundStyle(DS.Color.ink)
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .tint(DS.Color.primary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.md).fill(DS.Color.canvas)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.md)
+                .stroke(DS.Color.hairline, lineWidth: 1)
+        )
     }
 }
 

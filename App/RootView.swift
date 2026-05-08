@@ -9,6 +9,9 @@ import Commerce
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AudioToolbox)
+import AudioToolbox
+#endif
 
 // MARK: - Haptics
 
@@ -36,6 +39,25 @@ enum Haptics {
         #if canImport(UIKit)
         guard enabled else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+    }
+}
+
+enum Sounds {
+    private static var enabled: Bool { SoundPreference.isEnabled }
+    /// Subtle "tink".
+    static func correct() { play(1057) }
+    /// Soft "deny" beep.
+    static func wrong() { play(1521) }
+    /// Glass clink for game over moments.
+    static func gameOver() { play(1100) }
+    /// Page-turn for round transitions.
+    static func turn() { play(1306) }
+
+    private static func play(_ id: UInt32) {
+        #if canImport(AudioToolbox)
+        guard enabled else { return }
+        AudioServicesPlaySystemSound(SystemSoundID(id))
         #endif
     }
 }
@@ -97,7 +119,10 @@ struct RootView: View {
                                            again: { startTapped(rounds: store.totalRoundsThisGame,
                                                                  mode: store.difficultyMode) })
                                 .transition(.opacity)
-                                .onAppear { Task { await services.leaderboard?.submit(score: score.total) } }
+                                .onAppear {
+                                    Sounds.gameOver()
+                                    Task { await services.leaderboard?.submit(score: score.total) }
+                                }
                         }
                     }
                     .animation(.easeInOut(duration: 0.25), value: phaseId)
@@ -186,9 +211,9 @@ struct RootView: View {
 
     private func hapticForOutcome(_ outcome: Outcome) {
         switch outcome {
-        case .correct: Haptics.success()
-        case .timedOut: Haptics.warning()
-        case .skipped: Haptics.warning()
+        case .correct: Haptics.success(); Sounds.correct()
+        case .timedOut: Haptics.warning(); Sounds.wrong()
+        case .skipped: Haptics.warning(); Sounds.turn()
         }
     }
 
@@ -625,6 +650,7 @@ private struct AIDrawingScreen: View {
             guard let last = store.lastWrongGuess else { return }
             wrongMessage = last
             Haptics.error()
+            Sounds.wrong()
             withAnimation(.easeOut(duration: 0.15)) { wrongFlash = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 withAnimation(.easeIn(duration: 0.2)) { wrongFlash = false }
