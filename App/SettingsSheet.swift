@@ -8,6 +8,9 @@ struct SettingsSheet: View {
     @State private var anthropicKey: String = APIKeyStore.anthropicKey() ?? ""
     @State private var openAIKey: String = APIKeyStore.openAIKey() ?? ""
     @State private var provider: ProviderHint = .anthropic
+    @State private var hapticsEnabled: Bool = HapticsPreference.isEnabled
+    @State private var bestScore: BestScoreRecord? = BestScoreStore.current()
+    @State private var showResetConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +37,61 @@ struct SettingsSheet: View {
                                 Text("GPT-4o-mini").tag(ProviderHint.openai)
                             }
                             .pickerStyle(.segmented)
+                        }
+
+                        // — 触觉 / 最佳成绩 —
+                        SettingsSection(title: "玩法",
+                                        caption: "震动反馈在猜对/猜错/超时时给你触觉提示。") {
+                            HStack {
+                                Text("震动反馈")
+                                    .font(DS.Typo.bodyMD())
+                                    .foregroundStyle(DS.Color.ink)
+                                Spacer()
+                                Toggle("", isOn: $hapticsEnabled)
+                                    .labelsHidden()
+                                    .tint(DS.Color.primary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: DS.Radius.md).fill(DS.Color.canvas)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DS.Radius.md)
+                                    .stroke(DS.Color.hairline, lineWidth: 1)
+                            )
+                        }
+
+                        if let bestScore {
+                            SettingsSection(title: "最佳成绩",
+                                            caption: "本机最高分。点重置将清掉。") {
+                                HStack {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "crown.fill")
+                                            .foregroundStyle(DS.Color.accentAmber)
+                                        Text("\(bestScore.total) 分")
+                                            .font(DS.Typo.titleSM())
+                                            .foregroundStyle(DS.Color.ink)
+                                        Text("· \(bestScore.correct)/\(bestScore.rounds) 局")
+                                            .font(DS.Typo.caption())
+                                            .foregroundStyle(DS.Color.muted)
+                                    }
+                                    Spacer()
+                                    Button("重置") { showResetConfirm = true }
+                                        .buttonStyle(CoralTextLinkButtonStyle())
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .frame(height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: DS.Radius.md).fill(DS.Color.canvas)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DS.Radius.md)
+                                        .stroke(DS.Color.hairline, lineWidth: 1)
+                                )
+                            }
                         }
 
                         // — Anthropic Key —
@@ -71,6 +129,10 @@ struct SettingsSheet: View {
                                 .font(DS.Typo.bodySM())
                                 .foregroundStyle(DS.Color.body)
                                 .lineSpacing(2)
+                            Text(versionLine)
+                                .font(DS.Typo.caption())
+                                .foregroundStyle(DS.Color.mutedSoft)
+                                .padding(.top, DS.Space.xs)
                         }
                         .padding(DS.Space.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -95,6 +157,16 @@ struct SettingsSheet: View {
             .toolbarBackground(DS.Color.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
+            .alert("重置最佳成绩？", isPresented: $showResetConfirm) {
+                Button("重置", role: .destructive) {
+                    BestScoreStore.reset()
+                    bestScore = nil
+                }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("这会清掉本机记录的最高分。GameCenter 上的成绩不受影响。")
+            }
+            .onChange(of: hapticsEnabled) { _, new in HapticsPreference.set(new) }
             .onAppear {
                 if let raw = UserDefaults.standard.string(forKey: SettingsKey.providerHint),
                    let hint = ProviderHint(rawValue: raw) {
@@ -113,6 +185,12 @@ struct SettingsSheet: View {
         APIKeyStore.setOpenAIKey(openAIKey)
         UserDefaults.standard.set(provider.rawValue, forKey: SettingsKey.providerHint)
         store.providerHint = provider
+    }
+
+    private var versionLine: String {
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0"
+        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        return "AI Draw v\(v) (\(b))"
     }
 }
 

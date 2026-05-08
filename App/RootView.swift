@@ -13,23 +13,28 @@ import UIKit
 // MARK: - Haptics
 
 enum Haptics {
+    private static var enabled: Bool { HapticsPreference.isEnabled }
     static func success() {
         #if canImport(UIKit)
+        guard enabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         #endif
     }
     static func warning() {
         #if canImport(UIKit)
+        guard enabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
         #endif
     }
     static func error() {
         #if canImport(UIKit)
+        guard enabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.error)
         #endif
     }
     static func light() {
         #if canImport(UIKit)
+        guard enabled else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
     }
@@ -246,60 +251,113 @@ private struct StreakBadge: View {
 private struct IdleScreen: View {
     let entitlementHUD: String?
     let start: (_ rounds: Int, _ mode: DifficultyMode) -> Void
-    @State private var mode: DifficultyMode = .standard
-    @State private var rounds: Int = 6
+    @State private var mode: DifficultyMode = {
+        if let raw = GamePreferences.lastDifficultyMode,
+           let m = DifficultyMode(rawValue: raw) { return m }
+        return .standard
+    }()
+    @State private var rounds: Int = GamePreferences.lastRoundCount
+    @State private var bestScore: BestScoreRecord? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.lg) {
-            Spacer().frame(height: DS.Space.md)
-            Text("AI DRAW")
-                .font(DS.Typo.captionUpper())
-                .tracking(DS.Typo.captionUpperTracking)
-                .foregroundStyle(DS.Color.muted)
-            Text("Meet your\ndrawing partner.")
-                .font(DS.Typo.displayLG())
-                .tracking(DS.Typo.displayTrackingTight)
-                .foregroundStyle(DS.Color.ink)
-                .lineSpacing(2)
-            Text("和 AI 轮流出题画画 —— AI 用 QuickDraw 笔画演示，你画的让多模态模型来猜。")
-                .font(DS.Typo.bodyMD())
-                .foregroundStyle(DS.Color.body)
-                .lineSpacing(4)
-            if let entitlementHUD {
-                Text(entitlementHUD).creamPill()
-            }
-
-            // Difficulty + round count selectors.
-            VStack(alignment: .leading, spacing: DS.Space.sm) {
-                LabeledControl(title: "难度") {
-                    Picker("", selection: $mode) {
-                        Text("简单").tag(DifficultyMode.casual)
-                        Text("标准").tag(DifficultyMode.standard)
-                        Text("困难").tag(DifficultyMode.hard)
-                    }
-                    .pickerStyle(.segmented)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Space.lg) {
+                Spacer().frame(height: DS.Space.xs)
+                Text("AI DRAW")
+                    .font(DS.Typo.captionUpper())
+                    .tracking(DS.Typo.captionUpperTracking)
+                    .foregroundStyle(DS.Color.muted)
+                Text("Meet your\ndrawing partner.")
+                    .font(DS.Typo.displayMD())
+                    .tracking(DS.Typo.displayTrackingTight)
+                    .foregroundStyle(DS.Color.ink)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("和 AI 轮流出题画画 —— AI 用 QuickDraw 笔画演示，你画的让多模态模型来猜。")
+                    .font(DS.Typo.bodyMD())
+                    .foregroundStyle(DS.Color.body)
+                    .lineSpacing(4)
+                if let entitlementHUD {
+                    Text(entitlementHUD).creamPill()
                 }
-                LabeledControl(title: "局数") {
-                    Picker("", selection: $rounds) {
-                        Text("6 局").tag(6)
-                        Text("10 局").tag(10)
-                        Text("15 局").tag(15)
+
+                if let bestScore {
+                    BestScoreBanner(best: bestScore)
+                }
+
+                // Difficulty + round count selectors.
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    LabeledControl(title: "难度") {
+                        Picker("", selection: $mode) {
+                            Text("简单").tag(DifficultyMode.casual)
+                            Text("标准").tag(DifficultyMode.standard)
+                            Text("困难").tag(DifficultyMode.hard)
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
+                    LabeledControl(title: "局数") {
+                        Picker("", selection: $rounds) {
+                            Text("6 局").tag(6)
+                            Text("10 局").tag(10)
+                            Text("15 局").tag(15)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+                .padding(DS.Space.md)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.Radius.lg).fill(DS.Color.surfaceCard)
+                )
+
+                Button {
+                    GamePreferences.lastDifficultyMode = mode.rawValue
+                    GamePreferences.lastRoundCount = rounds
+                    start(rounds, mode)
+                } label: { Text("开始游戏") }
+                    .buttonStyle(CoralPrimaryButtonStyle())
+
+                FeatureStripe()
+                Spacer().frame(height: DS.Space.md)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.hidden)
+        .onAppear { bestScore = BestScoreStore.current() }
+    }
+}
+
+private struct BestScoreBanner: View {
+    let best: BestScoreRecord
+    var body: some View {
+        HStack(spacing: DS.Space.sm) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(DS.Color.accentAmber)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("最佳成绩")
+                    .font(DS.Typo.captionUpper())
+                    .tracking(DS.Typo.captionUpperTracking)
+                    .foregroundStyle(DS.Color.muted)
+                HStack(spacing: 6) {
+                    Text("\(best.total)")
+                        .font(DS.Typo.titleLG())
+                        .foregroundStyle(DS.Color.ink)
+                    Text("分")
+                        .font(DS.Typo.bodySM())
+                        .foregroundStyle(DS.Color.muted)
+                    Text("·").foregroundStyle(DS.Color.mutedSoft)
+                    Text("\(best.correct)/\(best.rounds) 局")
+                        .font(DS.Typo.bodySM())
+                        .foregroundStyle(DS.Color.muted)
                 }
             }
-            .padding(DS.Space.md)
-            .background(
-                RoundedRectangle(cornerRadius: DS.Radius.lg).fill(DS.Color.surfaceCard)
-            )
-
-            Button { start(rounds, mode) } label: { Text("开始游戏") }
-                .buttonStyle(CoralPrimaryButtonStyle())
-
-            FeatureStripe()
             Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DS.Space.md)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.md)
+                .fill(DS.Color.surfaceSoft)
+        )
     }
 }
 
@@ -368,9 +426,7 @@ private struct ShowWordScreen: View {
                     .font(DS.Typo.displayXL())
                     .foregroundStyle(DS.Color.mutedSoft)
             }
-            Text("难度：\(label(for: round.word.difficulty))")
-                .font(DS.Typo.bodySM())
-                .foregroundStyle(DS.Color.muted)
+            DifficultyPill(difficulty: round.word.difficulty)
             Spacer()
             Text("\(countdown)")
                 .font(DS.Typo.displayMD())
@@ -394,11 +450,45 @@ private struct ShowWordScreen: View {
         .onDisappear { timer?.invalidate() }
     }
 
-    private func label(for d: Difficulty) -> String {
-        switch d {
-        case .easy:   return "简单"
+}
+
+private struct DifficultyPill: View {
+    let difficulty: Difficulty
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { i in
+                Circle()
+                    .fill(i < dotsFilled ? color : DS.Color.hairline)
+                    .frame(width: 6, height: 6)
+            }
+            Text(label)
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(color.opacity(0.12)))
+    }
+    private var dotsFilled: Int {
+        switch difficulty {
+        case .easy: return 1
+        case .medium: return 2
+        case .hard: return 3
+        }
+    }
+    private var label: String {
+        switch difficulty {
+        case .easy: return "简单"
         case .medium: return "中等"
-        case .hard:   return "困难"
+        case .hard: return "困难"
+        }
+    }
+    private var color: Color {
+        switch difficulty {
+        case .easy: return DS.Color.success
+        case .medium: return DS.Color.accentTeal
+        case .hard: return DS.Color.error
         }
     }
 }
@@ -571,6 +661,8 @@ private struct PlayerDrawingScreen: View {
     @State private var timeRemaining: Int = Int(GameStore.playerDrawTimeLimit)
     @State private var ticker: Timer?
     @State private var didSubmit = false
+    @State private var cursorBlink = false
+    @State private var blinkTimer: Timer?
 
     var body: some View {
         VStack(spacing: DS.Space.sm) {
@@ -613,9 +705,18 @@ private struct PlayerDrawingScreen: View {
                         .padding(.horizontal, DS.Space.xs)
                         .padding(.vertical, 4)
                         .background(Capsule().fill(DS.Color.primary))
-                    Text(store.currentGuessText)
-                        .font(DS.Typo.bodyMD())
-                        .foregroundStyle(DS.Color.ink)
+                    HStack(spacing: 2) {
+                        Text(store.currentGuessText)
+                            .font(DS.Typo.bodyMD())
+                            .foregroundStyle(DS.Color.ink)
+                            .contentTransition(.opacity)
+                            .id(store.currentGuessText)
+                        Rectangle()
+                            .fill(DS.Color.primary)
+                            .frame(width: 2, height: 16)
+                            .opacity(cursorBlink ? 1 : 0)
+                    }
+                    Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(DS.Space.sm)
@@ -623,6 +724,7 @@ private struct PlayerDrawingScreen: View {
                     RoundedRectangle(cornerRadius: DS.Radius.md)
                         .fill(DS.Color.surfaceSoft)
                 )
+                .transition(.opacity)
             }
             HStack(spacing: DS.Space.sm) {
                 Button("清空") { drawing = PKDrawing() }
@@ -647,8 +749,15 @@ private struct PlayerDrawingScreen: View {
                 }
                 if timeRemaining <= 0 { store.handleTimeout() }
             }
+            blinkTimer?.invalidate()
+            blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { _ in
+                cursorBlink.toggle()
+            }
         }
-        .onDisappear { ticker?.invalidate() }
+        .onDisappear {
+            ticker?.invalidate()
+            blinkTimer?.invalidate()
+        }
     }
 
     private func submit() {
@@ -671,6 +780,9 @@ private struct RevealScreen: View {
     let next: () -> Void
 
     @State private var displayedTotal: Int = 0
+    @State private var autoAdvance: Double = 0
+    @State private var advanceTimer: Timer?
+    private let advanceWindow: TimeInterval = 4.0
 
     var body: some View {
         VStack(spacing: DS.Space.lg) {
@@ -725,8 +837,24 @@ private struct RevealScreen: View {
                 )
             }
             Spacer()
-            Button("下一局", action: next)
-                .buttonStyle(CoralPrimaryButtonStyle())
+            Button {
+                advanceTimer?.invalidate()
+                next()
+            } label: {
+                ZStack(alignment: .leading) {
+                    GeometryReader { geo in
+                        RoundedRectangle(cornerRadius: DS.Radius.md)
+                            .fill(DS.Color.primaryActive.opacity(0.55))
+                            .frame(width: geo.size.width * autoAdvance)
+                    }
+                    Text("下一局")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(CoralPrimaryButtonStyle())
+            Text("\(Int(advanceWindow - autoAdvance * advanceWindow + 0.5))s 后自动开始")
+                .font(DS.Typo.caption())
+                .foregroundStyle(DS.Color.muted)
         }
         .frame(maxWidth: .infinity)
         .onAppear {
@@ -734,7 +862,21 @@ private struct RevealScreen: View {
             withAnimation(.easeOut(duration: 0.6)) {
                 displayedTotal = score.total
             }
+            // Auto-advance after `advanceWindow` seconds. The user can tap to
+            // skip the wait. Progress fills the button as a visual cue.
+            autoAdvance = 0
+            advanceTimer?.invalidate()
+            let interval: TimeInterval = 0.05
+            let step = interval / advanceWindow
+            advanceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { t in
+                autoAdvance += step
+                if autoAdvance >= 1 {
+                    t.invalidate()
+                    next()
+                }
+            }
         }
+        .onDisappear { advanceTimer?.invalidate() }
     }
 
     private var isWin: Bool { if case .correct = outcome { return true } else { return false } }
@@ -767,15 +909,17 @@ private struct GameOverScreen: View {
     let score: Score
     let rounds: [RoundResult]
     let again: () -> Void
+    @State private var isPersonalBest: Bool = false
+    @State private var prevBest: Int = 0
 
     var body: some View {
         ScrollView {
             VStack(spacing: DS.Space.lg) {
-                Text("GAME OVER")
+                Text(isPersonalBest ? "NEW BEST" : "GAME OVER")
                     .font(DS.Typo.captionUpper())
                     .tracking(DS.Typo.captionUpperTracking)
-                    .foregroundStyle(DS.Color.muted)
-                Text("游戏结束")
+                    .foregroundStyle(isPersonalBest ? DS.Color.accentAmber : DS.Color.muted)
+                Text(isPersonalBest ? "新的最高分" : "游戏结束")
                     .font(DS.Typo.displayLG())
                     .tracking(DS.Typo.displayTrackingTight)
                     .foregroundStyle(DS.Color.ink)
@@ -790,6 +934,11 @@ private struct GameOverScreen: View {
                     Text("猜中 \(score.roundsCorrect) / \(rounds.count) 局")
                         .font(DS.Typo.bodyMD())
                         .foregroundStyle(DS.Color.body)
+                    if isPersonalBest, prevBest > 0 {
+                        Text("超过上次最佳 \(score.total - prevBest) 分")
+                            .font(DS.Typo.caption())
+                            .foregroundStyle(DS.Color.success)
+                    }
                     if let bestStreak = computeBestStreak(rounds), bestStreak >= 2 {
                         HStack(spacing: 4) {
                             Image(systemName: "flame.fill").font(.system(size: 12))
@@ -806,7 +955,11 @@ private struct GameOverScreen: View {
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: DS.Radius.lg)
-                        .fill(DS.Color.surfaceCard)
+                        .fill(isPersonalBest ? DS.Color.accentAmber.opacity(0.15) : DS.Color.surfaceCard)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.lg)
+                        .stroke(isPersonalBest ? DS.Color.accentAmber : Color.clear, lineWidth: 2)
                 )
 
                 // Per-round breakdown
@@ -822,11 +975,39 @@ private struct GameOverScreen: View {
                     }
                 }
 
-                Button("再来一局", action: again)
-                    .buttonStyle(CoralPrimaryButtonStyle())
-                    .padding(.top, DS.Space.md)
+                HStack(spacing: DS.Space.sm) {
+                    ShareLink(item: shareSummary) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.and.arrow.up")
+                            Text("分享")
+                        }
+                    }
+                    .buttonStyle(CreamSecondaryButtonStyle())
+                    Button("再来一局", action: again)
+                        .buttonStyle(CoralPrimaryButtonStyle(isFullWidth: true))
+                }
+                .padding(.top, DS.Space.md)
             }
         }
+        .onAppear {
+            prevBest = BestScoreStore.current()?.total ?? 0
+            isPersonalBest = BestScoreStore.recordIfBest(
+                total: score.total,
+                rounds: rounds.count,
+                correct: score.roundsCorrect
+            )
+            if isPersonalBest { Haptics.success() }
+        }
+    }
+
+    private var shareSummary: String {
+        var lines: [String] = []
+        lines.append("我在 AI Draw Something 拿了 \(score.total) 分")
+        lines.append("猜中 \(score.roundsCorrect)/\(rounds.count) 局")
+        if let best = computeBestStreak(rounds), best >= 2 {
+            lines.append("最高连击 ×\(best) 🔥")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func computeBestStreak(_ rs: [RoundResult]) -> Int? {
