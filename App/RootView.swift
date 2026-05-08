@@ -144,8 +144,14 @@ private struct ShowWordScreen: View {
             Text(round.kind == .aiDraws ? "AI 来画，你来猜" : "你来画，AI 来猜")
                 .font(.title2)
                 .foregroundStyle(.secondary)
-            Text(round.word.text)
-                .font(.system(size: 72, weight: .bold))
+            if round.kind == .playerDraws {
+                Text(round.word.text)
+                    .font(.system(size: 72, weight: .bold))
+            } else {
+                Text("?")
+                    .font(.system(size: 72, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
             Text("难度：\(label(for: round.word.difficulty))")
                 .foregroundStyle(.secondary)
             Spacer()
