@@ -386,28 +386,31 @@ private struct LabeledControl<Content: View>: View {
 }
 
 private struct FeatureStripe: View {
-    var body: some View {
-        HStack(spacing: DS.Space.sm) {
-            FeatureChip(label: "60 个词", system: "text.book.closed")
-            FeatureChip(label: "AI 视觉猜词", system: "eye")
-            FeatureChip(label: "连击加分", system: "flame")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
+    private static let buckets: [(WordCategory, Int)] = {
+        let grouped = Dictionary(grouping: StaticWordCatalog.mvpSeed.words, by: \.category)
+        return WordCategory.allCases
+            .compactMap { cat in
+                guard let count = grouped[cat]?.count, count > 0 else { return nil }
+                return (cat, count)
+            }
+    }()
 
-private struct FeatureChip: View {
-    let label: String
-    let system: String
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: system).font(.system(size: 12, weight: .medium))
-            Text(label).font(DS.Typo.caption())
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.xs) {
+                ForEach(Self.buckets, id: \.0) { cat, count in
+                    HStack(spacing: 4) {
+                        Text(cat.emoji).font(.system(size: 12))
+                        Text("\(cat.label) \(count)")
+                            .font(DS.Typo.caption())
+                    }
+                    .foregroundStyle(DS.Color.muted)
+                    .padding(.horizontal, DS.Space.sm)
+                    .padding(.vertical, 6)
+                    .overlay(Capsule().stroke(DS.Color.hairline, lineWidth: 1))
+                }
+            }
         }
-        .foregroundStyle(DS.Color.muted)
-        .padding(.horizontal, DS.Space.sm)
-        .padding(.vertical, 6)
-        .overlay(Capsule().stroke(DS.Color.hairline, lineWidth: 1))
     }
 }
 
@@ -1103,6 +1106,8 @@ private struct RoundResultRow: View {
                 .tracking(0.5)
                 .foregroundStyle(DS.Color.muted)
                 .frame(width: 24, alignment: .leading)
+            Text(result.round.word.category.emoji)
+                .font(.system(size: 18))
             VStack(alignment: .leading, spacing: 2) {
                 Text(result.round.word.text)
                     .font(DS.Typo.titleSM())

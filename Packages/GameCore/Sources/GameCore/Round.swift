@@ -9,6 +9,38 @@ public enum Difficulty: String, Sendable, Codable, CaseIterable {
     case easy, medium, hard
 }
 
+/// Coarse buckets for browsing / filtering / icon picking.
+public enum WordCategory: String, Sendable, Codable, CaseIterable {
+    case animal     // 动物
+    case object     // 物品
+    case nature     // 自然
+    case food       // 食物
+    case vehicle    // 交通
+    case other      // 其他
+
+    public var label: String {
+        switch self {
+        case .animal: return "动物"
+        case .object: return "物品"
+        case .nature: return "自然"
+        case .food:   return "食物"
+        case .vehicle: return "交通"
+        case .other:  return "其他"
+        }
+    }
+
+    public var emoji: String {
+        switch self {
+        case .animal: return "🐾"
+        case .object: return "🧰"
+        case .nature: return "🌿"
+        case .food:   return "🍎"
+        case .vehicle: return "🚗"
+        case .other:  return "✦"
+        }
+    }
+}
+
 public struct Word: Sendable, Hashable, Codable {
     public let id: String
     public let text: String
@@ -17,12 +49,19 @@ public struct Word: Sendable, Hashable, Codable {
     /// synonyms). `id` and `text` are always considered matches; aliases let
     /// the player win with "cat" when the answer is "猫".
     public let aliases: [String]
+    /// Browsable category, defaults to `.other` for back-compat.
+    public let category: WordCategory
 
-    public init(id: String, text: String, difficulty: Difficulty, aliases: [String] = []) {
+    public init(id: String,
+                text: String,
+                difficulty: Difficulty,
+                aliases: [String] = [],
+                category: WordCategory = .other) {
         self.id = id
         self.text = text
         self.difficulty = difficulty
         self.aliases = aliases
+        self.category = category
     }
 
     /// Case-insensitive, whitespace-trimmed match against the answer, the
