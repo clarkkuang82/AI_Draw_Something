@@ -13,18 +13,30 @@ public final class GameStore {
     public private(set) var roundIndex: Int = 0
     /// Latest interim guess text from the VLM, displayed during `.playerDrawing`.
     public private(set) var currentGuessText: String = ""
+    /// Increments every time the player submits a wrong guess during an
+    /// AI-draws round. Views observe this to flash a "not quite" hint.
+    public private(set) var wrongGuessNonce: Int = 0
+    /// The most recent rejected guess text. Cleared on round transitions.
+    public private(set) var lastWrongGuess: String? = nil
     /// Provider currently selected by the user (mirrors UserDefaults).
     public var providerHint: ProviderHint = .anthropic
 
     private let catalog: any WordCatalog
     private let guesser: any GuessClient
+    /// Subset of category ids that have sketches available for AI-draws
+    /// rounds. `nil` means no restriction (every word is playable as
+    /// AI-draws). Player-draws rounds always use the full catalog.
+    private let aiDrawableIds: Set<String>?
     private var usedWordIds: Set<String> = []
     private var roundStartedAt: Date?
     private var streamingTask: Task<Void, Never>?
 
-    public init(catalog: any WordCatalog, guesser: any GuessClient) {
+    public init(catalog: any WordCatalog,
+                guesser: any GuessClient,
+                aiDrawableIds: Set<String>? = nil) {
         self.catalog = catalog
         self.guesser = guesser
+        self.aiDrawableIds = aiDrawableIds
     }
 
     // MARK: - Public actions
@@ -34,6 +46,8 @@ public final class GameStore {
         roundIndex = 0
         usedWordIds = []
         currentGuessText = ""
+        wrongGuessNonce = 0
+        lastWrongGuess = nil
         phase = .loading
         advanceToNextRound()
     }
@@ -49,14 +63,17 @@ public final class GameStore {
         }
     }
 
-    /// During `.aiDrawing`: player types a guess. Compares against the answer.
+    /// During `.aiDrawing`: player types a guess. Fuzzy-matches against the
+    /// answer (text + English id + aliases), case-insensitive.
     public func submitPlayerGuess(_ text: String) {
         guard case .aiDrawing(let round) = phase else { return }
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized == round.word.text {
+        if round.word.matches(text) {
+            lastWrongGuess = nil
             finishRound(with: .correct(elapsed: elapsed()), round: round)
+        } else {
+            lastWrongGuess = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            wrongGuessNonce &+= 1
         }
-        // Wrong guess: ignore (player can keep typing).
     }
 
     /// During `.aiDrawing` or `.playerDrawing`: timer expired.
@@ -154,10 +171,14 @@ public final class GameStore {
         let difficulty: Difficulty = roundIndex <= 2 ? .easy
             : roundIndex <= 4 ? .medium : .hard
         let kind: TurnKind = roundIndex.isMultiple(of: 2) ? .playerDraws : .aiDraws
-        guard let word = catalog.pick(difficulty: difficulty, excluding: usedWordIds) else {
+        let restriction: Set<String>? = (kind == .aiDraws) ? aiDrawableIds : nil
+        guard let word = catalog.pick(difficulty: difficulty,
+                                      restrictedTo: restriction,
+                                      excluding: usedWordIds) else {
             phase = .gameOver(score)
             return
         }
+        lastWrongGuess = nil
         usedWordIds.insert(word.id)
         let round = Round(index: roundIndex, kind: kind, word: word)
         phase = .showWord(round)

@@ -196,6 +196,8 @@ private struct AIDrawingScreen: View {
     @State private var sketch: Sketch?
     @State private var timeRemaining: Int = Int(GameStore.aiDrawTimeLimit)
     @State private var ticker: Timer?
+    @State private var wrongFlash: Bool = false
+    @State private var wrongMessage: String? = nil
 
     var body: some View {
         VStack(spacing: 16) {
@@ -216,11 +218,32 @@ private struct AIDrawingScreen: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            if let wrongMessage {
+                Text("❌ \(wrongMessage) 不对，再试")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack {
                 TextField("输入答案", text: $input)
                     .textFieldStyle(.roundedBorder)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(.red, lineWidth: wrongFlash ? 2 : 0)
+                    )
                     .onSubmit { submit() }
                 Button("提交") { submit() }.buttonStyle(.borderedProminent)
+            }
+        }
+        .onChange(of: store.wrongGuessNonce) { _, _ in
+            guard let last = store.lastWrongGuess else { return }
+            wrongMessage = last
+            withAnimation(.easeOut(duration: 0.15)) { wrongFlash = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                withAnimation(.easeIn(duration: 0.2)) { wrongFlash = false }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                if wrongMessage == last { wrongMessage = nil }
             }
         }
         .onAppear {

@@ -23,7 +23,7 @@ public struct AppServices {
     public let isAttestedMode: Bool
 
     @MainActor
-    public init(catalog: any WordCatalog) {
+    public init(catalog: any WordCatalog, aiDrawableIds: Set<String>? = nil) {
         if let worker = Self.workerBaseURL {
             let attestConfig = AttestConfig(
                 workerBaseURL: worker,
@@ -32,7 +32,7 @@ public struct AppServices {
             let attest = AttestService(config: attestConfig)
             let entitlementClient = EntitlementClient(workerBaseURL: worker, attest: attest)
             let guesser = AttestedGuessClient(workerBaseURL: worker, attest: attest)
-            self.gameStore = GameStore(catalog: catalog, guesser: guesser)
+            self.gameStore = GameStore(catalog: catalog, guesser: guesser, aiDrawableIds: aiDrawableIds)
             #if canImport(StoreKit)
             self.entitlementStore = EntitlementStore(client: entitlementClient)
             self.iapStore = IAPStore(entitlementClient: entitlementClient)
@@ -50,7 +50,7 @@ public struct AppServices {
                 case .openai:    return APIKeyStore.openAIKey()
                 }
             })
-            self.gameStore = GameStore(catalog: catalog, guesser: guesser)
+            self.gameStore = GameStore(catalog: catalog, guesser: guesser, aiDrawableIds: aiDrawableIds)
             self.entitlementStore = nil
             self.iapStore = nil
             self.referralFlow = nil

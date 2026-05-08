@@ -38,4 +38,31 @@ final class WordCatalogTests: XCTestCase {
         let ids = StaticWordCatalog.mvpSeed.allCategoryIds
         XCTAssertEqual(Set(ids).count, ids.count, "duplicate ids")
     }
+
+    func test_pick_with_restrictedTo_only_returns_words_in_subset() {
+        let cat = StaticWordCatalog.mvpSeed
+        let allowed: Set<String> = ["cat", "fish", "house"]
+        for _ in 0..<10 {
+            let picked = cat.pick(difficulty: .easy, restrictedTo: allowed, excluding: [])
+            XCTAssertNotNil(picked)
+            if let picked { XCTAssertTrue(allowed.contains(picked.id), "got \(picked.id)") }
+        }
+    }
+
+    func test_pick_with_empty_restrictedTo_falls_back_gracefully() {
+        let cat = StaticWordCatalog.mvpSeed
+        let picked = cat.pick(difficulty: .easy, restrictedTo: [], excluding: [])
+        XCTAssertNil(picked, "empty allowed-set must produce no pick")
+    }
+
+    func test_word_matches_text_id_and_aliases_case_insensitive() {
+        let cat = Word(id: "cat", text: "猫", difficulty: .easy, aliases: ["kitty", "猫咪"])
+        XCTAssertTrue(cat.matches("猫"))
+        XCTAssertTrue(cat.matches("Cat"))
+        XCTAssertTrue(cat.matches("  CAT  "))
+        XCTAssertTrue(cat.matches("kitty"))
+        XCTAssertTrue(cat.matches("猫咪"))
+        XCTAssertFalse(cat.matches("dog"))
+        XCTAssertFalse(cat.matches(""))
+    }
 }
