@@ -4,6 +4,7 @@ import Drawing
 
 @main
 struct AIDrawSomethingApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var services: AppServices = AppServices(catalog: StaticWordCatalog.mvpSeed)
     @State private var dataset: QuickDrawDataset? = {
         try? QuickDrawDataset()

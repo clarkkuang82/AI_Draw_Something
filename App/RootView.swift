@@ -18,33 +18,37 @@ struct RootView: View {
         NavigationStack {
             ZStack {
                 Color(uiColor: .systemBackground).ignoresSafeArea()
-                Group {
-                    switch store.phase {
-                    case .idle:
-                        IdleScreen(
-                            entitlementHUD: services.entitlementStore?.hudText,
-                            start: { startTapped() }
-                        )
-                    case .loading:
-                        ProgressView()
-                    case .showWord(let round):
-                        ShowWordScreen(round: round, begin: { store.beginRound() })
-                    case .aiDrawing(let round):
-                        AIDrawingScreen(round: round, dataset: dataset, store: store)
-                    case .playerDrawing(let round):
-                        PlayerDrawingScreen(round: round, store: store)
-                    case .reveal(let round, let outcome):
-                        RevealScreen(round: round, outcome: outcome,
-                                     score: store.score,
-                                     next: { store.acknowledgeReveal(); store.nextRound() })
-                    case .roundOver:
-                        ProgressView()
-                    case .gameOver(let score):
-                        GameOverScreen(score: score, again: { startTapped() })
-                            .onAppear { Task { await services.leaderboard?.submit(score: score.total) } }
+                VStack(spacing: 0) {
+                    Group {
+                        switch store.phase {
+                        case .idle:
+                            IdleScreen(
+                                entitlementHUD: services.entitlementStore?.hudText,
+                                start: { startTapped() }
+                            )
+                        case .loading:
+                            ProgressView()
+                        case .showWord(let round):
+                            ShowWordScreen(round: round, begin: { store.beginRound() })
+                        case .aiDrawing(let round):
+                            AIDrawingScreen(round: round, dataset: dataset, store: store)
+                        case .playerDrawing(let round):
+                            PlayerDrawingScreen(round: round, store: store)
+                        case .reveal(let round, let outcome):
+                            RevealScreen(round: round, outcome: outcome,
+                                         score: store.score,
+                                         next: { store.acknowledgeReveal(); store.nextRound() })
+                        case .roundOver:
+                            ProgressView()
+                        case .gameOver(let score):
+                            GameOverScreen(score: score, again: { startTapped() })
+                                .onAppear { Task { await services.leaderboard?.submit(score: score.total) } }
+                        }
                     }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    AdMobBannerView()
                 }
-                .padding()
             }
             .navigationTitle("AI Draw")
             .toolbar {
