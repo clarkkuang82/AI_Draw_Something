@@ -11,52 +11,90 @@ struct SettingsSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("AI 模型") {
-                    Picker("使用模型", selection: $provider) {
-                        Text("Claude Haiku 4.5").tag(ProviderHint.anthropic)
-                        Text("GPT-4o-mini").tag(ProviderHint.openai)
+            ZStack {
+                DS.Color.canvas.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DS.Space.lg) {
+                        // — Header —
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("SETTINGS")
+                                .font(DS.Typo.captionUpper())
+                                .tracking(DS.Typo.captionUpperTracking)
+                                .foregroundStyle(DS.Color.muted)
+                            Text("设置")
+                                .font(DS.Typo.displayMD())
+                                .tracking(DS.Typo.displayTrackingTight)
+                                .foregroundStyle(DS.Color.ink)
+                        }
+
+                        // — AI 模型 —
+                        SettingsSection(title: "AI 模型", caption: "选择用哪个多模态模型来猜你画的图。") {
+                            Picker("使用模型", selection: $provider) {
+                                Text("Claude Haiku 4.5").tag(ProviderHint.anthropic)
+                                Text("GPT-4o-mini").tag(ProviderHint.openai)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        // — Anthropic Key —
+                        SettingsSection(title: "Anthropic API Key",
+                                        caption: "MVP：直接调 Anthropic，未经服务器代理。生产版会移除此字段，密钥放在 Cloudflare Worker 中。") {
+                            DSKeyField(placeholder: "sk-ant-...", text: $anthropicKey)
+                        }
+
+                        // — OpenAI Key —
+                        SettingsSection(title: "OpenAI API Key",
+                                        caption: "仅当模型选 GPT-4o-mini 时使用。") {
+                            DSKeyField(placeholder: "sk-...", text: $openAIKey)
+                        }
+
+                        // — Actions —
+                        VStack(spacing: DS.Space.sm) {
+                            Button("保存") { save() }
+                                .buttonStyle(CoralPrimaryButtonStyle())
+                            Button("清除所有 Key") {
+                                anthropicKey = ""; openAIKey = ""
+                                APIKeyStore.setAnthropicKey(nil)
+                                APIKeyStore.setOpenAIKey(nil)
+                            }
+                            .buttonStyle(CreamSecondaryButtonStyle())
+                            .frame(maxWidth: .infinity)
+                        }
+
+                        // — About —
+                        VStack(alignment: .leading, spacing: DS.Space.xs) {
+                            Text("ABOUT")
+                                .font(DS.Typo.captionUpper())
+                                .tracking(DS.Typo.captionUpperTracking)
+                                .foregroundStyle(DS.Color.muted)
+                            Text("草图来自 Google Quick, Draw! 数据集（CC BY 4.0）。MVP 使用极小手绘种子集。")
+                                .font(DS.Typo.bodySM())
+                                .foregroundStyle(DS.Color.body)
+                                .lineSpacing(2)
+                        }
+                        .padding(DS.Space.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.Radius.md)
+                                .fill(DS.Color.surfaceSoft)
+                        )
+
+                        Spacer().frame(height: DS.Space.lg)
                     }
-                    .pickerStyle(.segmented)
-                }
-                Section {
-                    SecureField("sk-ant-...", text: $anthropicKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } header: {
-                    Text("Anthropic API Key")
-                } footer: {
-                    Text("MVP：直接调 Anthropic，未经服务器代理。生产版会移除此字段，密钥放在 Cloudflare Worker 中。")
-                }
-                Section {
-                    SecureField("sk-...", text: $openAIKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } header: {
-                    Text("OpenAI API Key")
-                } footer: {
-                    Text("仅当模型选 GPT-4o-mini 时使用。")
-                }
-                Section {
-                    Button("保存") { save() }
-                    Button("清除所有 Key", role: .destructive) {
-                        anthropicKey = ""; openAIKey = ""
-                        APIKeyStore.setAnthropicKey(nil)
-                        APIKeyStore.setOpenAIKey(nil)
-                    }
-                }
-                Section("关于") {
-                    Text("草图来自 Google Quick, Draw! 数据集（CC BY 4.0）。MVP 使用极小手绘种子集。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    .padding(.horizontal, DS.Space.lg)
+                    .padding(.top, DS.Space.md)
                 }
             }
-            .navigationTitle("设置")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") { save(); dismiss() }
+                        .font(DS.Typo.button())
+                        .foregroundStyle(DS.Color.primary)
                 }
             }
+            .toolbarBackground(DS.Color.canvas, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 if let raw = UserDefaults.standard.string(forKey: SettingsKey.providerHint),
                    let hint = ProviderHint(rawValue: raw) {
@@ -66,6 +104,8 @@ struct SettingsSheet: View {
                 }
             }
         }
+        .tint(DS.Color.primary)
+        .preferredColorScheme(.light)
     }
 
     private func save() {
@@ -73,5 +113,69 @@ struct SettingsSheet: View {
         APIKeyStore.setOpenAIKey(openAIKey)
         UserDefaults.standard.set(provider.rawValue, forKey: SettingsKey.providerHint)
         store.providerHint = provider
+    }
+}
+
+// MARK: - Section + key field
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    let caption: String?
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            Text(title)
+                .font(DS.Typo.titleSM())
+                .foregroundStyle(DS.Color.ink)
+            content()
+            if let caption {
+                Text(caption)
+                    .font(DS.Typo.bodySM())
+                    .foregroundStyle(DS.Color.muted)
+                    .lineSpacing(2)
+            }
+        }
+    }
+}
+
+private struct DSKeyField: View {
+    let placeholder: String
+    @Binding var text: String
+    @State private var revealed = false
+
+    var body: some View {
+        HStack(spacing: DS.Space.xs) {
+            Group {
+                if revealed {
+                    TextField(placeholder, text: $text)
+                } else {
+                    SecureField(placeholder, text: $text)
+                }
+            }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .font(DS.Typo.code())
+            .foregroundStyle(DS.Color.ink)
+
+            Button {
+                revealed.toggle()
+            } label: {
+                Image(systemName: revealed ? "eye.slash" : "eye")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(DS.Color.muted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.md).fill(DS.Color.canvas)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.md)
+                .stroke(DS.Color.hairline, lineWidth: 1)
+        )
     }
 }

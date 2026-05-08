@@ -17,7 +17,7 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(uiColor: .systemBackground).ignoresSafeArea()
+                DS.Color.canvas.ignoresSafeArea()
                 VStack(spacing: 0) {
                     Group {
                         switch store.phase {
@@ -27,7 +27,7 @@ struct RootView: View {
                                 start: { startTapped() }
                             )
                         case .loading:
-                            ProgressView()
+                            ProgressView().tint(DS.Color.primary)
                         case .showWord(let round):
                             ShowWordScreen(round: round, begin: { store.beginRound() })
                         case .aiDrawing(let round):
@@ -39,25 +39,39 @@ struct RootView: View {
                                          score: store.score,
                                          next: { store.acknowledgeReveal(); store.nextRound() })
                         case .roundOver:
-                            ProgressView()
+                            ProgressView().tint(DS.Color.primary)
                         case .gameOver(let score):
                             GameOverScreen(score: score, again: { startTapped() })
                                 .onAppear { Task { await services.leaderboard?.submit(score: score.total) } }
                         }
                     }
-                    .padding()
+                    .padding(.horizontal, DS.Space.lg)
+                    .padding(.vertical, DS.Space.md)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     AdMobBannerView()
                 }
             }
-            .navigationTitle("AI Draw")
+            .toolbarBackground(DS.Color.canvas, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    AppWordmark()
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(DS.Color.ink)
+                    }
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    if case .idle = store.phase { EmptyView() }
-                    else { Text("第 \(store.roundIndex)/\(GameStore.totalRounds) 局").font(.caption) }
+                    if case .idle = store.phase {
+                        EmptyView()
+                    } else {
+                        Text("第 \(store.roundIndex)/\(GameStore.totalRounds) 局")
+                            .coralPill()
+                    }
                 }
             }
             .sheet(isPresented: $showSettings) {
@@ -75,6 +89,8 @@ struct RootView: View {
             }
             #endif
         }
+        .tint(DS.Color.primary)
+        .preferredColorScheme(.light)
     }
 
     private func startTapped() {
@@ -102,35 +118,79 @@ struct RootView: View {
     }
 }
 
+// MARK: - Anthropic-style wordmark
+
+private struct AppWordmark: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            // Stand-in for the Anthropic spike-mark — a 4-spoke radial.
+            Image(systemName: "asterisk")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(DS.Color.ink)
+            Text("AI Draw")
+                .font(DS.Typo.titleSM())
+                .foregroundStyle(DS.Color.ink)
+        }
+    }
+}
+
 // MARK: - Idle
 
 private struct IdleScreen: View {
     let entitlementHUD: String?
     let start: () -> Void
     var body: some View {
-        VStack(spacing: 32) {
-            Text("AI Draw Something")
-                .font(.largeTitle.bold())
-            Text("和 AI 轮流出题画画——AI 用 QuickDraw 笔画演示，你画的让 AI 来猜。")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: DS.Space.lg) {
+            Spacer().frame(height: DS.Space.xl)
+            Text("AI DRAW")
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(DS.Color.muted)
+            Text("Meet your\ndrawing partner.")
+                .font(DS.Typo.displayLG())
+                .tracking(DS.Typo.displayTrackingTight)
+                .foregroundStyle(DS.Color.ink)
+                .lineSpacing(2)
+            Text("和 AI 轮流出题画画 —— AI 用 QuickDraw 笔画演示，你画的让多模态模型来猜。")
+                .font(DS.Typo.bodyMD())
+                .foregroundStyle(DS.Color.body)
+                .lineSpacing(4)
             if let entitlementHUD {
-                Text(entitlementHUD)
-                    .font(.callout)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                Text(entitlementHUD).creamPill()
             }
-            Button(action: start) {
-                Text("开始游戏")
-                    .font(.title2.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 24)
+            Button(action: start) { Text("开始游戏") }
+                .buttonStyle(CoralPrimaryButtonStyle())
+                .padding(.top, DS.Space.sm)
             Spacer()
+            FeatureStripe()
         }
-        .padding(.top, 60)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct FeatureStripe: View {
+    var body: some View {
+        HStack(spacing: DS.Space.sm) {
+            FeatureChip(label: "30 个词", system: "text.book.closed")
+            FeatureChip(label: "AI 视觉猜词", system: "eye")
+            FeatureChip(label: "GameCenter", system: "trophy")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct FeatureChip: View {
+    let label: String
+    let system: String
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: system).font(.system(size: 12, weight: .medium))
+            Text(label).font(DS.Typo.caption())
+        }
+        .foregroundStyle(DS.Color.muted)
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, 6)
+        .overlay(Capsule().stroke(DS.Color.hairline, lineWidth: 1))
     }
 }
 
@@ -143,24 +203,32 @@ private struct ShowWordScreen: View {
     @State private var timer: Timer?
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: DS.Space.lg) {
             Spacer()
-            Text(round.kind == .aiDraws ? "AI 来画，你来猜" : "你来画，AI 来猜")
-                .font(.title2)
-                .foregroundStyle(.secondary)
+            Text(round.kind == .aiDraws ? "AI 来画 · 你来猜" : "你来画 · AI 来猜")
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(DS.Color.muted)
             if round.kind == .playerDraws {
                 Text(round.word.text)
-                    .font(.system(size: 72, weight: .bold))
+                    .font(DS.Typo.displayXL())
+                    .tracking(DS.Typo.displayTrackingTight)
+                    .foregroundStyle(DS.Color.ink)
             } else {
                 Text("?")
-                    .font(.system(size: 72, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .font(DS.Typo.displayXL())
+                    .foregroundStyle(DS.Color.mutedSoft)
             }
             Text("难度：\(label(for: round.word.difficulty))")
-                .foregroundStyle(.secondary)
+                .font(DS.Typo.bodySM())
+                .foregroundStyle(DS.Color.muted)
             Spacer()
-            Text("\(countdown)").font(.system(size: 48, weight: .bold))
+            Text("\(countdown)")
+                .font(DS.Typo.displayMD())
+                .foregroundStyle(DS.Color.primary)
                 .opacity(countdown > 0 ? 1 : 0)
+                .frame(width: 60, height: 60)
+                .background(Circle().stroke(DS.Color.primary.opacity(0.25), lineWidth: 2))
             Spacer()
         }
         .onAppear {
@@ -200,39 +268,59 @@ private struct AIDrawingScreen: View {
     @State private var wrongMessage: String? = nil
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: DS.Space.md) {
             HStack {
-                Text("剩余 \(timeRemaining)s").monospacedDigit()
+                HStack(spacing: 6) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("\(timeRemaining)s").monospacedDigit()
+                }
+                .font(DS.Typo.caption())
+                .foregroundStyle(DS.Color.muted)
                 Spacer()
-                Button("跳过") { store.handleTimeout() }
-                    .foregroundStyle(.red)
+                Button("跳过", action: store.handleTimeout)
+                    .buttonStyle(CoralTextLinkButtonStyle())
             }
             Group {
                 if let sketch {
                     QuickDrawPlaybackView(sketch: sketch, speed: 2.0, lineWidth: 4)
                         .frame(maxWidth: .infinity)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.97)))
                 } else {
                     ContentUnavailableView("没有 \(round.word.id) 的草图",
                                            systemImage: "exclamationmark.triangle")
                 }
             }
             .frame(maxHeight: .infinity)
+            .creamCard(padding: DS.Space.md)
             if let wrongMessage {
-                Text("❌ \(wrongMessage) 不对，再试")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark.circle.fill")
+                    Text("「\(wrongMessage)」不对，再试")
+                }
+                .font(DS.Typo.bodySM())
+                .foregroundStyle(DS.Color.error)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack {
+            HStack(spacing: DS.Space.sm) {
                 TextField("输入答案", text: $input)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .font(DS.Typo.bodyMD())
+                    .foregroundStyle(DS.Color.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(height: 40)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.md)
+                            .fill(DS.Color.canvas)
+                    )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(.red, lineWidth: wrongFlash ? 2 : 0)
+                        RoundedRectangle(cornerRadius: DS.Radius.md)
+                            .stroke(wrongFlash ? DS.Color.error : DS.Color.hairline,
+                                    lineWidth: wrongFlash ? 2 : 1)
                     )
                     .onSubmit { submit() }
-                Button("提交") { submit() }.buttonStyle(.borderedProminent)
+                Button("提交") { submit() }
+                    .buttonStyle(CoralPrimaryButtonStyle(isFullWidth: false))
             }
         }
         .onChange(of: store.wrongGuessNonce) { _, _ in
@@ -277,33 +365,65 @@ private struct PlayerDrawingScreen: View {
     @State private var didSubmit = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: DS.Space.sm) {
             HStack {
-                Text("画：\(round.word.text)").font(.headline)
+                HStack(spacing: 6) {
+                    Text("画").font(DS.Typo.caption()).foregroundStyle(DS.Color.muted)
+                    Text(round.word.text)
+                        .font(DS.Typo.titleLG())
+                        .foregroundStyle(DS.Color.ink)
+                }
                 Spacer()
-                Text("剩余 \(timeRemaining)s").monospacedDigit()
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("\(timeRemaining)s").monospacedDigit()
+                }
+                .font(DS.Typo.caption())
+                .foregroundStyle(DS.Color.muted)
             }
             GeometryReader { geo in
                 PlayerCanvasView(drawing: $drawing)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.97)))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(.gray.opacity(0.3)))
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.lg)
+                            .fill(DS.Color.surfaceCard)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radius.lg)
+                            .stroke(DS.Color.hairline, lineWidth: 1)
+                    )
                     .onAppear { canvasSize = geo.size }
                     .onChange(of: geo.size) { _, new in canvasSize = new }
             }
             .frame(maxHeight: .infinity)
             if !store.currentGuessText.isEmpty {
-                Text("AI: \(store.currentGuessText)")
-                    .font(.callout)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(.blue.opacity(0.08)))
+                HStack(alignment: .top, spacing: 8) {
+                    Text("AI")
+                        .font(DS.Typo.captionUpper())
+                        .tracking(DS.Typo.captionUpperTracking)
+                        .foregroundStyle(DS.Color.onPrimary)
+                        .padding(.horizontal, DS.Space.xs)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(DS.Color.primary))
+                    Text(store.currentGuessText)
+                        .font(DS.Typo.bodyMD())
+                        .foregroundStyle(DS.Color.ink)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(DS.Space.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.Radius.md)
+                        .fill(DS.Color.surfaceSoft)
+                )
             }
-            HStack {
+            HStack(spacing: DS.Space.sm) {
                 Button("清空") { drawing = PKDrawing() }
+                    .buttonStyle(CreamSecondaryButtonStyle())
                 Spacer()
                 Button(didSubmit ? "等待 AI…" : "让 AI 猜") { submit() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(CoralPrimaryButtonStyle(isFullWidth: false))
                     .disabled(didSubmit)
+                    .opacity(didSubmit ? 0.6 : 1)
             }
         }
         .onAppear {
@@ -334,24 +454,55 @@ private struct RevealScreen: View {
     let score: Score
     let next: () -> Void
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: DS.Space.lg) {
             Spacer()
+            Text(outcomeBadge)
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(DS.Color.onPrimary)
+                .padding(.horizontal, DS.Space.sm)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(isWin ? DS.Color.success : DS.Color.error))
             Text(title)
-                .font(.largeTitle.bold())
-                .foregroundStyle(isWin ? .green : .red)
-            Text("答案：\(round.word.text)").font(.title2)
-            Text("当前分数：\(score.total)").font(.title3).foregroundStyle(.secondary)
+                .font(DS.Typo.displayLG())
+                .tracking(DS.Typo.displayTrackingTight)
+                .foregroundStyle(DS.Color.ink)
+            VStack(spacing: 6) {
+                Text("答案").font(DS.Typo.caption()).foregroundStyle(DS.Color.muted)
+                Text(round.word.text)
+                    .font(DS.Typo.displaySM())
+                    .foregroundStyle(DS.Color.ink)
+            }
+            HStack(spacing: DS.Space.xs) {
+                Text("当前分数").font(DS.Typo.caption()).foregroundStyle(DS.Color.muted)
+                Text("\(score.total)")
+                    .font(DS.Typo.titleLG())
+                    .foregroundStyle(DS.Color.primary)
+            }
+            .padding(.horizontal, DS.Space.md)
+            .padding(.vertical, DS.Space.xs)
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.md)
+                    .stroke(DS.Color.hairline, lineWidth: 1)
+            )
             Spacer()
             Button("下一局", action: next)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(CoralPrimaryButtonStyle())
         }
+        .frame(maxWidth: .infinity)
     }
     private var isWin: Bool { if case .correct = outcome { return true } else { return false } }
+    private var outcomeBadge: String {
+        switch outcome {
+        case .correct: return "WIN"
+        case .timedOut: return "TIME OUT"
+        case .skipped: return "SKIPPED"
+        }
+    }
     private var title: String {
         switch outcome {
         case .correct: return "猜对了！"
-        case .timedOut: return "时间到"
+        case .timedOut: return "时间到了"
         case .skipped: return "已跳过"
         }
     }
@@ -363,16 +514,38 @@ private struct GameOverScreen: View {
     let score: Score
     let again: () -> Void
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: DS.Space.lg) {
             Spacer()
-            Text("游戏结束").font(.largeTitle.bold())
-            Text("总分：\(score.total)").font(.title)
-            Text("猜中：\(score.roundsCorrect) / \(GameStore.totalRounds)")
-                .foregroundStyle(.secondary)
+            Text("GAME OVER")
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(DS.Color.muted)
+            Text("游戏结束")
+                .font(DS.Typo.displayLG())
+                .tracking(DS.Typo.displayTrackingTight)
+                .foregroundStyle(DS.Color.ink)
+            VStack(spacing: DS.Space.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                    Text("\(score.total)")
+                        .font(DS.Typo.displayXL())
+                        .tracking(DS.Typo.displayTrackingTight)
+                        .foregroundStyle(DS.Color.primary)
+                    Text("分").font(DS.Typo.titleMD()).foregroundStyle(DS.Color.muted)
+                }
+                Text("猜中 \(score.roundsCorrect) / \(GameStore.totalRounds) 局")
+                    .font(DS.Typo.bodyMD())
+                    .foregroundStyle(DS.Color.body)
+            }
+            .padding(DS.Space.xl)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.lg)
+                    .fill(DS.Color.surfaceCard)
+            )
             Spacer()
             Button("再来一局", action: again)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(CoralPrimaryButtonStyle())
         }
+        .frame(maxWidth: .infinity)
     }
 }
