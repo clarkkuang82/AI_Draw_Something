@@ -12,5 +12,6 @@ let package = Package(
             name: "Drawing",
             resources: [.copy("Resources/sketches.json")]
         ),
+        .testTarget(name: "DrawingTests", dependencies: ["Drawing"]),
     ]
 )
