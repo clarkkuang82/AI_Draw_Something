@@ -31,7 +31,7 @@ public final class IAPStore {
     public private(set) var lastError: String?
 
     private let entitlementClient: EntitlementClient
-    private var transactionListener: Task<Void, Never>?
+    private nonisolated(unsafe) var transactionListener: Task<Void, Never>?
 
     public init(entitlementClient: EntitlementClient) {
         self.entitlementClient = entitlementClient

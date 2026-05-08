@@ -22,7 +22,11 @@ public final class QuickDrawDataset: @unchecked Sendable {
         self.byCategory = Dictionary(grouping: sketches, by: \.categoryId)
     }
 
-    public convenience init(bundle: Bundle = .module) throws {
+    public convenience init() throws {
+        try self.init(bundle: .module)
+    }
+
+    public convenience init(bundle: Bundle) throws {
         guard let url = bundle.url(forResource: "sketches", withExtension: "json") else {
             throw QuickDrawDatasetError.resourceMissing
         }

@@ -17,7 +17,7 @@ final class CanonicalPayloadTests: XCTestCase {
         )
         let bytes = try payload.encodedBytes()
         let actual = String(data: bytes, encoding: .utf8)!
-        XCTAssertEqual(actual, expectedFixture)
+        XCTAssertEqual(actual, Self.expectedFixture)
     }
 
     func test_keys_are_alphabetical_regardless_of_init_order() throws {
