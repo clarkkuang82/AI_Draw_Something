@@ -26,3 +26,6 @@ Worker/dist/
 # Editors
 .vscode/
 .idea/
+
+# Local CLI build scaffold (xcodegen-generated; regenerated on demand)
+/.build-verify/
