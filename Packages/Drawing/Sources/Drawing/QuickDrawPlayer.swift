@@ -59,7 +59,6 @@ public struct QuickDrawPlaybackView: View {
                                                  lineJoin: .round))
                 }
             }
-            .background(Color(white: 0.98))
             .aspectRatio(1, contentMode: .fit)
         }
         .onAppear { startedAt = .now; didCompleteFire = false }

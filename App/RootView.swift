@@ -90,7 +90,8 @@ struct RootView: View {
                             )
                             .transition(.opacity)
                         case .loading:
-                            ProgressView().tint(DS.Color.primary)
+                            BrandedLoading()
+                                .transition(.opacity)
                         case .showWord(let round):
                             ShowWordScreen(round: round, begin: { store.beginRound() })
                                 .transition(.opacity)
@@ -270,6 +271,25 @@ private struct AppWordmark: View {
                 .foregroundStyle(DS.Color.ink)
         }
         .onAppear { rotate = true }
+    }
+}
+
+private struct BrandedLoading: View {
+    @State private var spin = false
+    var body: some View {
+        VStack(spacing: DS.Space.md) {
+            Image(systemName: "asterisk")
+                .font(.system(size: 36, weight: .bold))
+                .foregroundStyle(DS.Color.primary)
+                .rotationEffect(.degrees(spin ? 360 : 0))
+                .animation(.linear(duration: 1.6).repeatForever(autoreverses: false),
+                           value: spin)
+            Text("准备中…")
+                .font(DS.Typo.caption())
+                .foregroundStyle(DS.Color.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { spin = true }
     }
 }
 
