@@ -19,7 +19,7 @@ struct OnboardingSheet: View {
               icon: "eye"),
         .init(eyebrow: "ROUND TYPE 2",
               headline: "你画 · AI 来猜",
-              body: "用手指或 Apple Pencil 画 45 秒，点「让 AI 猜」上传，AI 流式吐「是不是 X？」。需要在设置里粘 Anthropic 或 OpenAI 的 API key。",
+              body: "用手指或 Apple Pencil 画 45 秒，点「让 AI 猜」上传。这一类回合需要先在设置里粘 Anthropic 或 OpenAI 的 API key —— 没 key 时这类回合会跳过，纯猜词的回合照常玩。",
               icon: "scribble.variable")
     ]
 
