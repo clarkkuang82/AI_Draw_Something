@@ -48,6 +48,7 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var showPaywall = false
     @State private var showKeyAlert = false
+    @State private var showOnboarding: Bool = !OnboardingState.didOnboard
 
     private var store: GameStore { services.gameStore }
 
@@ -135,6 +136,9 @@ struct RootView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet(store: store)
+            }
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingSheet()
             }
             .alert("还没填 API key", isPresented: $showKeyAlert) {
                 Button("去设置") { showSettings = true }
@@ -505,6 +509,7 @@ private struct AIDrawingScreen: View {
     @State private var ticker: Timer?
     @State private var wrongFlash: Bool = false
     @State private var wrongMessage: String? = nil
+    @State private var replayKey: Int = 0
 
     private var hintLevel: Int {
         let elapsed = Int(GameStore.aiDrawTimeLimit) - timeRemaining
@@ -530,16 +535,38 @@ private struct AIDrawingScreen: View {
                     .disabled(store.skipsRemaining == 0)
                     .opacity(store.skipsRemaining == 0 ? 0.4 : 1)
             }
-            Group {
-                if let sketch {
-                    QuickDrawPlaybackView(sketch: sketch, speed: 2.0, lineWidth: 4)
-                        .frame(maxWidth: .infinity)
-                } else {
-                    ContentUnavailableView("没有 \(round.word.id) 的草图",
-                                           systemImage: "exclamationmark.triangle")
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if let sketch {
+                        QuickDrawPlaybackView(sketch: sketch, speed: 2.0, lineWidth: 4)
+                            .id(replayKey)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        ContentUnavailableView("没有 \(round.word.id) 的草图",
+                                               systemImage: "exclamationmark.triangle")
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                if sketch != nil {
+                    Button {
+                        replayKey &+= 1
+                        Haptics.light()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("重播")
+                                .font(DS.Typo.caption())
+                        }
+                        .foregroundStyle(DS.Color.muted)
+                        .padding(.horizontal, DS.Space.sm)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(DS.Color.canvas))
+                        .overlay(Capsule().stroke(DS.Color.hairline, lineWidth: 1))
+                    }
+                    .padding(DS.Space.xs)
                 }
             }
-            .frame(maxHeight: .infinity)
             .creamCard(padding: DS.Space.md)
             HintRow(level: hintLevel, word: round.word)
             if let wrongMessage {

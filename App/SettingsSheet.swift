@@ -11,6 +11,7 @@ struct SettingsSheet: View {
     @State private var hapticsEnabled: Bool = HapticsPreference.isEnabled
     @State private var bestScore: BestScoreRecord? = BestScoreStore.current()
     @State private var showResetConfirm = false
+    @State private var showHowToPlay = false
 
     var body: some View {
         NavigationStack {
@@ -117,6 +118,8 @@ struct SettingsSheet: View {
                             }
                             .buttonStyle(CreamSecondaryButtonStyle())
                             .frame(maxWidth: .infinity)
+                            Button("How to play") { showHowToPlay = true }
+                                .buttonStyle(CoralTextLinkButtonStyle())
                         }
 
                         // — About —
@@ -157,6 +160,7 @@ struct SettingsSheet: View {
             .toolbarBackground(DS.Color.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showHowToPlay) { OnboardingSheet() }
             .alert("重置最佳成绩？", isPresented: $showResetConfirm) {
                 Button("重置", role: .destructive) {
                     BestScoreStore.reset()

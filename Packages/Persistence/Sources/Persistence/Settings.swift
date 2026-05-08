@@ -8,6 +8,15 @@ public enum SettingsKey {
     public static let hapticsEnabled  = "ai.draw.haptics.enabled"
     public static let lastDifficultyMode = "ai.draw.lastMode"
     public static let lastRoundCount  = "ai.draw.lastRounds"
+    public static let didOnboard      = "ai.draw.didOnboard"
+}
+
+public enum OnboardingState {
+    private static var defaults: UserDefaults { .standard }
+    public static var didOnboard: Bool {
+        get { defaults.bool(forKey: SettingsKey.didOnboard) }
+        set { defaults.set(newValue, forKey: SettingsKey.didOnboard) }
+    }
 }
 
 public enum GamePreferences {
