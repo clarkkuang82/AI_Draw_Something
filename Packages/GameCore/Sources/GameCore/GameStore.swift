@@ -7,6 +7,7 @@ public final class GameStore {
     public static let totalRounds = 6
     public static let aiDrawTimeLimit: TimeInterval = 60
     public static let playerDrawTimeLimit: TimeInterval = 45
+    public static let defaultSkipBudget = 2
 
     public private(set) var phase: GamePhase = .idle
     public private(set) var score: Score = .zero
@@ -18,6 +19,20 @@ public final class GameStore {
     public private(set) var wrongGuessNonce: Int = 0
     /// The most recent rejected guess text. Cleared on round transitions.
     public private(set) var lastWrongGuess: String? = nil
+    /// Consecutive correct rounds — feeds the streak multiplier.
+    public private(set) var streak: Int = 0
+    /// Skips remaining this game.
+    public private(set) var skipsRemaining: Int = defaultSkipBudget
+    /// Per-round audit log — used by the GameOver breakdown card and any
+    /// future stats screen.
+    public private(set) var roundHistory: [RoundResult] = []
+    /// Points awarded by the most recent finishRound call. Lets the
+    /// reveal screen animate a count-up from previous total.
+    public private(set) var lastDelta: Int = 0
+    /// Difficulty mode selected at startGame.
+    public private(set) var difficultyMode: DifficultyMode = .standard
+    /// Number of rounds the active game will play through.
+    public private(set) var totalRoundsThisGame: Int = totalRounds
     /// Provider currently selected by the user (mirrors UserDefaults).
     public var providerHint: ProviderHint = .anthropic
 
@@ -41,13 +56,24 @@ public final class GameStore {
 
     // MARK: - Public actions
 
+    /// Legacy zero-arg call kept for callers that don't care about config.
     public func startGame() {
+        startGame(rounds: Self.totalRounds, mode: .standard)
+    }
+
+    public func startGame(rounds: Int, mode: DifficultyMode) {
         score = .zero
         roundIndex = 0
         usedWordIds = []
         currentGuessText = ""
         wrongGuessNonce = 0
         lastWrongGuess = nil
+        streak = 0
+        skipsRemaining = Self.defaultSkipBudget
+        roundHistory = []
+        lastDelta = 0
+        difficultyMode = mode
+        totalRoundsThisGame = max(1, rounds)
         phase = .loading
         advanceToNextRound()
     }
@@ -76,7 +102,18 @@ public final class GameStore {
         }
     }
 
-    /// During `.aiDrawing` or `.playerDrawing`: timer expired.
+    /// User-initiated skip. Costs one skip from the budget. Acts as a
+    /// timed-out outcome (zero points, breaks streak).
+    public func requestSkip() {
+        guard let round = phase.currentRound else { return }
+        guard skipsRemaining > 0 else { return }
+        skipsRemaining -= 1
+        streamingTask?.cancel()
+        streamingTask = nil
+        finishRound(with: .skipped, round: round)
+    }
+
+    /// Timer expired during an AI-draws or player-draws round.
     public func handleTimeout() {
         guard let round = phase.currentRound else { return }
         streamingTask?.cancel()
@@ -147,11 +184,23 @@ public final class GameStore {
         let limit = round.kind == .aiDraws
             ? Self.aiDrawTimeLimit
             : Self.playerDrawTimeLimit
-        let delta = Scoring.award(outcome: outcome,
-                                  difficulty: round.word.difficulty,
-                                  timeLimit: limit)
+        let base = Scoring.award(outcome: outcome,
+                                 difficulty: round.word.difficulty,
+                                 timeLimit: limit)
+        let isWin: Bool = {
+            if case .correct = outcome { return true }
+            return false
+        }()
+        // Streak: increments on a win, resets on miss/skip/timeout.
+        let nextStreak = isWin ? streak + 1 : 0
+        let multiplier = isWin ? Scoring.streakMultiplier(nextStreak) : 1.0
+        let delta = Int((Double(base) * multiplier).rounded())
+        streak = nextStreak
+        lastDelta = delta
         score = Score(total: score.total + delta,
-                      roundsCorrect: score.roundsCorrect + (delta > 0 ? 1 : 0))
+                      roundsCorrect: score.roundsCorrect + (isWin ? 1 : 0))
+        roundHistory.append(.init(round: round, outcome: outcome,
+                                  points: delta, multiplier: multiplier))
         phase = .reveal(round, outcome)
     }
 
@@ -163,13 +212,13 @@ public final class GameStore {
 
     private func advanceToNextRound() {
         roundIndex += 1
-        if roundIndex > Self.totalRounds {
+        if roundIndex > totalRoundsThisGame {
             phase = .gameOver(score)
             return
         }
-        // Difficulty curve: rounds 1-2 easy, 3-4 medium, 5-6 hard.
-        let difficulty: Difficulty = roundIndex <= 2 ? .easy
-            : roundIndex <= 4 ? .medium : .hard
+        let difficulty = difficultyForRound(roundIndex,
+                                            mode: difficultyMode,
+                                            total: totalRoundsThisGame)
         let kind: TurnKind = roundIndex.isMultiple(of: 2) ? .playerDraws : .aiDraws
         let restriction: Set<String>? = (kind == .aiDraws) ? aiDrawableIds : nil
         guard let word = catalog.pick(difficulty: difficulty,
@@ -182,5 +231,25 @@ public final class GameStore {
         usedWordIds.insert(word.id)
         let round = Round(index: roundIndex, kind: kind, word: word)
         phase = .showWord(round)
+    }
+
+    /// Maps round index → difficulty under the chosen mode. Splits the game
+    /// into rough thirds (early easy, middle medium, late hard) for standard;
+    /// shifts the curve up or down for hard / casual.
+    private func difficultyForRound(_ idx: Int, mode: DifficultyMode, total: Int) -> Difficulty {
+        let progress = Double(idx) / Double(max(total, 1))
+        switch mode {
+        case .casual:
+            // 80% easy, 20% medium near end.
+            return progress > 0.8 ? .medium : .easy
+        case .standard:
+            // Thirds: easy / medium / hard.
+            if progress <= 1.0 / 3.0 { return .easy }
+            if progress <= 2.0 / 3.0 { return .medium }
+            return .hard
+        case .hard:
+            // 20% medium up front, 80% hard.
+            return progress <= 0.2 ? .medium : .hard
+        }
     }
 }

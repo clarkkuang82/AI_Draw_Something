@@ -34,4 +34,20 @@ public enum Scoring {
             return Int((Double(base) * ratio).rounded())
         }
     }
+
+    /// Streak bonus multiplier — encourages chain-correct answers.
+    /// Streak counts only consecutive correct rounds; resets on
+    /// timeout / skip / wrong-final.
+    /// - 0–1 correct in a row: 1.0× (no bonus)
+    /// - 2 in a row: 1.25×
+    /// - 3 in a row: 1.5×
+    /// - 4+ in a row: 1.75× (capped)
+    public static func streakMultiplier(_ streak: Int) -> Double {
+        switch streak {
+        case ...1: return 1.0
+        case 2:    return 1.25
+        case 3:    return 1.5
+        default:   return 1.75
+        }
+    }
 }

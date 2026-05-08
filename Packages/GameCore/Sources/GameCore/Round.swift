@@ -60,3 +60,34 @@ public enum Outcome: Sendable, Hashable {
     case timedOut
     case skipped
 }
+
+/// Game-level difficulty mode chosen at start. Controls the difficulty
+/// curve `advanceToNextRound` walks.
+public enum DifficultyMode: String, Sendable, Codable, CaseIterable {
+    case casual    // mostly easy, one medium near the end
+    case standard  // 1-2 easy, 3-4 medium, 5-6 hard (legacy default)
+    case hard      // mostly hard, one medium up front
+}
+
+/// Per-round entry kept in `GameStore.roundHistory` so the GameOver screen
+/// can render a per-round breakdown.
+public struct RoundResult: Sendable, Hashable {
+    public let round: Round
+    public let outcome: Outcome
+    /// Points awarded for this round (post-streak multiplier).
+    public let points: Int
+    /// Streak multiplier applied (1.0, 1.25, 1.5, 1.75).
+    public let multiplier: Double
+
+    public init(round: Round, outcome: Outcome, points: Int, multiplier: Double) {
+        self.round = round
+        self.outcome = outcome
+        self.points = points
+        self.multiplier = multiplier
+    }
+
+    public var didWin: Bool {
+        if case .correct = outcome { return true }
+        return false
+    }
+}

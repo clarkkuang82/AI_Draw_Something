@@ -2,15 +2,47 @@ import SwiftUI
 import PencilKit
 import GameCore
 import Drawing
+import Persistence
 #if canImport(Commerce)
 import Commerce
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
+
+// MARK: - Haptics
+
+enum Haptics {
+    static func success() {
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+    static func warning() {
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        #endif
+    }
+    static func error() {
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        #endif
+    }
+    static func light() {
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+    }
+}
+
+// MARK: - Root
 
 struct RootView: View {
     let services: AppServices
     let dataset: QuickDrawDataset?
     @State private var showSettings = false
     @State private var showPaywall = false
+    @State private var showKeyAlert = false
 
     private var store: GameStore { services.gameStore }
 
@@ -24,27 +56,44 @@ struct RootView: View {
                         case .idle:
                             IdleScreen(
                                 entitlementHUD: services.entitlementStore?.hudText,
-                                start: { startTapped() }
+                                start: { rounds, mode in
+                                    startTapped(rounds: rounds, mode: mode)
+                                }
                             )
+                            .transition(.opacity)
                         case .loading:
                             ProgressView().tint(DS.Color.primary)
                         case .showWord(let round):
                             ShowWordScreen(round: round, begin: { store.beginRound() })
+                                .transition(.opacity)
                         case .aiDrawing(let round):
                             AIDrawingScreen(round: round, dataset: dataset, store: store)
+                                .transition(.opacity)
                         case .playerDrawing(let round):
                             PlayerDrawingScreen(round: round, store: store)
+                                .transition(.opacity)
                         case .reveal(let round, let outcome):
                             RevealScreen(round: round, outcome: outcome,
+                                         delta: store.lastDelta,
+                                         multiplier: store.roundHistory.last?.multiplier ?? 1.0,
                                          score: store.score,
-                                         next: { store.acknowledgeReveal(); store.nextRound() })
+                                         next: {
+                                             store.acknowledgeReveal(); store.nextRound()
+                                         })
+                                .transition(.opacity)
+                                .onAppear { hapticForOutcome(outcome) }
                         case .roundOver:
                             ProgressView().tint(DS.Color.primary)
                         case .gameOver(let score):
-                            GameOverScreen(score: score, again: { startTapped() })
+                            GameOverScreen(score: score,
+                                           rounds: store.roundHistory,
+                                           again: { startTapped(rounds: store.totalRoundsThisGame,
+                                                                 mode: store.difficultyMode) })
+                                .transition(.opacity)
                                 .onAppear { Task { await services.leaderboard?.submit(score: score.total) } }
                         }
                     }
+                    .animation(.easeInOut(duration: 0.25), value: phaseId)
                     .padding(.horizontal, DS.Space.lg)
                     .padding(.vertical, DS.Space.md)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,13 +118,24 @@ struct RootView: View {
                     if case .idle = store.phase {
                         EmptyView()
                     } else {
-                        Text("第 \(store.roundIndex)/\(GameStore.totalRounds) 局")
-                            .coralPill()
+                        HStack(spacing: 6) {
+                            Text("第 \(store.roundIndex)/\(store.totalRoundsThisGame)")
+                                .coralPill()
+                            if store.streak >= 2 {
+                                StreakBadge(streak: store.streak)
+                            }
+                        }
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet(store: store)
+            }
+            .alert("还没填 API key", isPresented: $showKeyAlert) {
+                Button("去设置") { showSettings = true }
+                Button("先看看", role: .cancel) { }
+            } message: {
+                Text("AI 猜你画的图需要 Anthropic 或 OpenAI key（设置 → 粘贴）。\n纯猜词回合不需要 key，可以照常玩。")
             }
             #if canImport(Commerce)
             .sheet(isPresented: $showPaywall) {
@@ -93,7 +153,28 @@ struct RootView: View {
         .preferredColorScheme(.light)
     }
 
-    private func startTapped() {
+    private var phaseId: String {
+        switch store.phase {
+        case .idle: return "idle"
+        case .loading: return "loading"
+        case .showWord: return "showWord-\(store.roundIndex)"
+        case .aiDrawing: return "aiDrawing-\(store.roundIndex)"
+        case .playerDrawing: return "playerDrawing-\(store.roundIndex)"
+        case .reveal: return "reveal-\(store.roundIndex)"
+        case .roundOver: return "roundOver-\(store.roundIndex)"
+        case .gameOver: return "gameOver"
+        }
+    }
+
+    private func hapticForOutcome(_ outcome: Outcome) {
+        switch outcome {
+        case .correct: Haptics.success()
+        case .timedOut: Haptics.warning()
+        case .skipped: Haptics.warning()
+        }
+    }
+
+    private func startTapped(rounds: Int, mode: DifficultyMode) {
         Task {
             #if canImport(Commerce)
             if services.isAttestedMode, let ent = services.entitlementStore {
@@ -104,7 +185,18 @@ struct RootView: View {
                 }
             }
             #endif
-            store.startGame()
+            // BYOK mode + no key: prompt before launching, since several rounds
+            // will silently fail when the player tries to submit a drawing.
+            if !services.isAttestedMode {
+                let hasKey = (APIKeyStore.anthropicKey()?.isEmpty == false)
+                    || (APIKeyStore.openAIKey()?.isEmpty == false)
+                if !hasKey {
+                    showKeyAlert = true
+                    return
+                }
+            }
+            Haptics.light()
+            store.startGame(rounds: rounds, mode: mode)
         }
     }
 
@@ -118,12 +210,11 @@ struct RootView: View {
     }
 }
 
-// MARK: - Anthropic-style wordmark
+// MARK: - Wordmark + streak badge
 
 private struct AppWordmark: View {
     var body: some View {
         HStack(spacing: 6) {
-            // Stand-in for the Anthropic spike-mark — a 4-spoke radial.
             Image(systemName: "asterisk")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(DS.Color.ink)
@@ -134,14 +225,33 @@ private struct AppWordmark: View {
     }
 }
 
+private struct StreakBadge: View {
+    let streak: Int
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "flame.fill").font(.system(size: 11, weight: .bold))
+            Text("×\(streak)")
+                .font(DS.Typo.captionUpper())
+                .tracking(0.5)
+        }
+        .foregroundStyle(DS.Color.onPrimary)
+        .padding(.horizontal, DS.Space.xs)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(DS.Color.accentAmber))
+    }
+}
+
 // MARK: - Idle
 
 private struct IdleScreen: View {
     let entitlementHUD: String?
-    let start: () -> Void
+    let start: (_ rounds: Int, _ mode: DifficultyMode) -> Void
+    @State private var mode: DifficultyMode = .standard
+    @State private var rounds: Int = 6
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.lg) {
-            Spacer().frame(height: DS.Space.xl)
+            Spacer().frame(height: DS.Space.md)
             Text("AI DRAW")
                 .font(DS.Typo.captionUpper())
                 .tracking(DS.Typo.captionUpperTracking)
@@ -158,22 +268,61 @@ private struct IdleScreen: View {
             if let entitlementHUD {
                 Text(entitlementHUD).creamPill()
             }
-            Button(action: start) { Text("开始游戏") }
+
+            // Difficulty + round count selectors.
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                LabeledControl(title: "难度") {
+                    Picker("", selection: $mode) {
+                        Text("简单").tag(DifficultyMode.casual)
+                        Text("标准").tag(DifficultyMode.standard)
+                        Text("困难").tag(DifficultyMode.hard)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                LabeledControl(title: "局数") {
+                    Picker("", selection: $rounds) {
+                        Text("6 局").tag(6)
+                        Text("10 局").tag(10)
+                        Text("15 局").tag(15)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .padding(DS.Space.md)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.lg).fill(DS.Color.surfaceCard)
+            )
+
+            Button { start(rounds, mode) } label: { Text("开始游戏") }
                 .buttonStyle(CoralPrimaryButtonStyle())
-                .padding(.top, DS.Space.sm)
-            Spacer()
+
             FeatureStripe()
+            Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct LabeledControl<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(DS.Typo.captionUpper())
+                .tracking(DS.Typo.captionUpperTracking)
+                .foregroundStyle(DS.Color.muted)
+            content()
+        }
     }
 }
 
 private struct FeatureStripe: View {
     var body: some View {
         HStack(spacing: DS.Space.sm) {
-            FeatureChip(label: "30 个词", system: "text.book.closed")
+            FeatureChip(label: "60 个词", system: "text.book.closed")
             FeatureChip(label: "AI 视觉猜词", system: "eye")
-            FeatureChip(label: "GameCenter", system: "trophy")
+            FeatureChip(label: "连击加分", system: "flame")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -267,6 +416,14 @@ private struct AIDrawingScreen: View {
     @State private var wrongFlash: Bool = false
     @State private var wrongMessage: String? = nil
 
+    private var hintLevel: Int {
+        let elapsed = Int(GameStore.aiDrawTimeLimit) - timeRemaining
+        if elapsed >= 50 { return 3 }
+        if elapsed >= 35 { return 2 }
+        if elapsed >= 20 { return 1 }
+        return 0
+    }
+
     var body: some View {
         VStack(spacing: DS.Space.md) {
             HStack {
@@ -276,10 +433,12 @@ private struct AIDrawingScreen: View {
                     Text("\(timeRemaining)s").monospacedDigit()
                 }
                 .font(DS.Typo.caption())
-                .foregroundStyle(DS.Color.muted)
+                .foregroundStyle(timeRemaining <= 10 ? DS.Color.error : DS.Color.muted)
                 Spacer()
-                Button("跳过", action: store.handleTimeout)
+                Button("跳过 (\(store.skipsRemaining))") { store.requestSkip() }
                     .buttonStyle(CoralTextLinkButtonStyle())
+                    .disabled(store.skipsRemaining == 0)
+                    .opacity(store.skipsRemaining == 0 ? 0.4 : 1)
             }
             Group {
                 if let sketch {
@@ -292,6 +451,7 @@ private struct AIDrawingScreen: View {
             }
             .frame(maxHeight: .infinity)
             .creamCard(padding: DS.Space.md)
+            HintRow(level: hintLevel, word: round.word)
             if let wrongMessage {
                 HStack(spacing: 6) {
                     Image(systemName: "xmark.circle.fill")
@@ -326,6 +486,7 @@ private struct AIDrawingScreen: View {
         .onChange(of: store.wrongGuessNonce) { _, _ in
             guard let last = store.lastWrongGuess else { return }
             wrongMessage = last
+            Haptics.error()
             withAnimation(.easeOut(duration: 0.15)) { wrongFlash = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 withAnimation(.easeIn(duration: 0.2)) { wrongFlash = false }
@@ -350,6 +511,53 @@ private struct AIDrawingScreen: View {
         guard !input.isEmpty else { return }
         store.submitPlayerGuess(input)
         input = ""
+    }
+}
+
+private struct HintRow: View {
+    let level: Int
+    let word: Word
+
+    var body: some View {
+        Group {
+            switch level {
+            case 0:
+                EmptyView()
+            case 1:
+                HintLine(icon: "lightbulb",
+                         text: "提示：共 \(word.text.count) 个字")
+            case 2:
+                HintLine(icon: "lightbulb.fill",
+                         text: "提示：首字「\(firstChar(of: word.text))」")
+            default:
+                HintLine(icon: "lightbulb.fill",
+                         text: "提示：英文是「\(word.id)」")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func firstChar(of s: String) -> String {
+        guard let f = s.first else { return "?" }
+        return String(f)
+    }
+}
+
+private struct HintLine: View {
+    let icon: String
+    let text: String
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 12, weight: .medium))
+            Text(text).font(DS.Typo.bodySM())
+        }
+        .foregroundStyle(DS.Color.accentAmber)
+        .padding(.horizontal, DS.Space.sm)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.sm)
+                .fill(DS.Color.accentAmber.opacity(0.12))
+        )
     }
 }
 
@@ -380,7 +588,7 @@ private struct PlayerDrawingScreen: View {
                     Text("\(timeRemaining)s").monospacedDigit()
                 }
                 .font(DS.Typo.caption())
-                .foregroundStyle(DS.Color.muted)
+                .foregroundStyle(timeRemaining <= 10 ? DS.Color.error : DS.Color.muted)
             }
             GeometryReader { geo in
                 PlayerCanvasView(drawing: $drawing)
@@ -422,8 +630,8 @@ private struct PlayerDrawingScreen: View {
                 Spacer()
                 Button(didSubmit ? "等待 AI…" : "让 AI 猜") { submit() }
                     .buttonStyle(CoralPrimaryButtonStyle(isFullWidth: false))
-                    .disabled(didSubmit)
-                    .opacity(didSubmit ? 0.6 : 1)
+                    .disabled(didSubmit || drawing.strokes.isEmpty)
+                    .opacity((didSubmit || drawing.strokes.isEmpty) ? 0.6 : 1)
             }
         }
         .onAppear {
@@ -431,6 +639,12 @@ private struct PlayerDrawingScreen: View {
             ticker?.invalidate()
             ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
                 timeRemaining -= 1
+                // Auto-submit at 5s remaining if there's anything drawn and we
+                // haven't sent it yet.
+                if timeRemaining == 5, !didSubmit, !drawing.strokes.isEmpty {
+                    Haptics.warning()
+                    submit()
+                }
                 if timeRemaining <= 0 { store.handleTimeout() }
             }
         }
@@ -451,8 +665,13 @@ private struct PlayerDrawingScreen: View {
 private struct RevealScreen: View {
     let round: Round
     let outcome: Outcome
+    let delta: Int
+    let multiplier: Double
     let score: Score
     let next: () -> Void
+
+    @State private var displayedTotal: Int = 0
+
     var body: some View {
         VStack(spacing: DS.Space.lg) {
             Spacer()
@@ -462,7 +681,7 @@ private struct RevealScreen: View {
                 .foregroundStyle(DS.Color.onPrimary)
                 .padding(.horizontal, DS.Space.sm)
                 .padding(.vertical, 4)
-                .background(Capsule().fill(isWin ? DS.Color.success : DS.Color.error))
+                .background(Capsule().fill(badgeColor))
             Text(title)
                 .font(DS.Typo.displayLG())
                 .tracking(DS.Typo.displayTrackingTight)
@@ -473,24 +692,51 @@ private struct RevealScreen: View {
                     .font(DS.Typo.displaySM())
                     .foregroundStyle(DS.Color.ink)
             }
-            HStack(spacing: DS.Space.xs) {
-                Text("当前分数").font(DS.Typo.caption()).foregroundStyle(DS.Color.muted)
-                Text("\(score.total)")
-                    .font(DS.Typo.titleLG())
-                    .foregroundStyle(DS.Color.primary)
+            // Delta with optional streak multiplier badge.
+            VStack(spacing: 6) {
+                if delta > 0 {
+                    HStack(spacing: 6) {
+                        Text("+\(delta)")
+                            .font(DS.Typo.titleLG())
+                            .foregroundStyle(DS.Color.success)
+                        if multiplier > 1.0 {
+                            Text(String(format: "×%.2f streak", multiplier))
+                                .font(DS.Typo.caption())
+                                .foregroundStyle(DS.Color.accentAmber)
+                                .padding(.horizontal, DS.Space.xs)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(DS.Color.accentAmber.opacity(0.15)))
+                        }
+                    }
+                }
+                HStack(spacing: DS.Space.xs) {
+                    Text("当前分数").font(DS.Typo.caption()).foregroundStyle(DS.Color.muted)
+                    Text("\(displayedTotal)")
+                        .font(DS.Typo.titleLG())
+                        .monospacedDigit()
+                        .foregroundStyle(DS.Color.primary)
+                        .contentTransition(.numericText())
+                }
+                .padding(.horizontal, DS.Space.md)
+                .padding(.vertical, DS.Space.xs)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.md)
+                        .stroke(DS.Color.hairline, lineWidth: 1)
+                )
             }
-            .padding(.horizontal, DS.Space.md)
-            .padding(.vertical, DS.Space.xs)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.md)
-                    .stroke(DS.Color.hairline, lineWidth: 1)
-            )
             Spacer()
             Button("下一局", action: next)
                 .buttonStyle(CoralPrimaryButtonStyle())
         }
         .frame(maxWidth: .infinity)
+        .onAppear {
+            displayedTotal = score.total - delta
+            withAnimation(.easeOut(duration: 0.6)) {
+                displayedTotal = score.total
+            }
+        }
     }
+
     private var isWin: Bool { if case .correct = outcome { return true } else { return false } }
     private var outcomeBadge: String {
         switch outcome {
@@ -506,46 +752,146 @@ private struct RevealScreen: View {
         case .skipped: return "已跳过"
         }
     }
+    private var badgeColor: Color {
+        switch outcome {
+        case .correct: return DS.Color.success
+        case .timedOut: return DS.Color.error
+        case .skipped: return DS.Color.muted
+        }
+    }
 }
 
 // MARK: - Game over
 
 private struct GameOverScreen: View {
     let score: Score
+    let rounds: [RoundResult]
     let again: () -> Void
+
     var body: some View {
-        VStack(spacing: DS.Space.lg) {
-            Spacer()
-            Text("GAME OVER")
-                .font(DS.Typo.captionUpper())
-                .tracking(DS.Typo.captionUpperTracking)
-                .foregroundStyle(DS.Color.muted)
-            Text("游戏结束")
-                .font(DS.Typo.displayLG())
-                .tracking(DS.Typo.displayTrackingTight)
-                .foregroundStyle(DS.Color.ink)
-            VStack(spacing: DS.Space.sm) {
-                HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
-                    Text("\(score.total)")
-                        .font(DS.Typo.displayXL())
-                        .tracking(DS.Typo.displayTrackingTight)
-                        .foregroundStyle(DS.Color.primary)
-                    Text("分").font(DS.Typo.titleMD()).foregroundStyle(DS.Color.muted)
+        ScrollView {
+            VStack(spacing: DS.Space.lg) {
+                Text("GAME OVER")
+                    .font(DS.Typo.captionUpper())
+                    .tracking(DS.Typo.captionUpperTracking)
+                    .foregroundStyle(DS.Color.muted)
+                Text("游戏结束")
+                    .font(DS.Typo.displayLG())
+                    .tracking(DS.Typo.displayTrackingTight)
+                    .foregroundStyle(DS.Color.ink)
+                VStack(spacing: DS.Space.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: DS.Space.xs) {
+                        Text("\(score.total)")
+                            .font(DS.Typo.displayXL())
+                            .tracking(DS.Typo.displayTrackingTight)
+                            .foregroundStyle(DS.Color.primary)
+                        Text("分").font(DS.Typo.titleMD()).foregroundStyle(DS.Color.muted)
+                    }
+                    Text("猜中 \(score.roundsCorrect) / \(rounds.count) 局")
+                        .font(DS.Typo.bodyMD())
+                        .foregroundStyle(DS.Color.body)
+                    if let bestStreak = computeBestStreak(rounds), bestStreak >= 2 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "flame.fill").font(.system(size: 12))
+                            Text("最高连击 ×\(bestStreak)")
+                                .font(DS.Typo.caption())
+                        }
+                        .foregroundStyle(DS.Color.accentAmber)
+                        .padding(.horizontal, DS.Space.sm)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(DS.Color.accentAmber.opacity(0.15)))
+                    }
                 }
-                Text("猜中 \(score.roundsCorrect) / \(GameStore.totalRounds) 局")
-                    .font(DS.Typo.bodyMD())
-                    .foregroundStyle(DS.Color.body)
+                .padding(DS.Space.xl)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.Radius.lg)
+                        .fill(DS.Color.surfaceCard)
+                )
+
+                // Per-round breakdown
+                if !rounds.isEmpty {
+                    VStack(alignment: .leading, spacing: DS.Space.sm) {
+                        Text("ROUND BREAKDOWN")
+                            .font(DS.Typo.captionUpper())
+                            .tracking(DS.Typo.captionUpperTracking)
+                            .foregroundStyle(DS.Color.muted)
+                        ForEach(Array(rounds.enumerated()), id: \.offset) { idx, r in
+                            RoundResultRow(index: idx + 1, result: r)
+                        }
+                    }
+                }
+
+                Button("再来一局", action: again)
+                    .buttonStyle(CoralPrimaryButtonStyle())
+                    .padding(.top, DS.Space.md)
             }
-            .padding(DS.Space.xl)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: DS.Radius.lg)
-                    .fill(DS.Color.surfaceCard)
-            )
-            Spacer()
-            Button("再来一局", action: again)
-                .buttonStyle(CoralPrimaryButtonStyle())
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private func computeBestStreak(_ rs: [RoundResult]) -> Int? {
+        var best = 0
+        var current = 0
+        for r in rs {
+            if r.didWin { current += 1; best = max(best, current) }
+            else        { current = 0 }
+        }
+        return best == 0 ? nil : best
+    }
+}
+
+private struct RoundResultRow: View {
+    let index: Int
+    let result: RoundResult
+
+    var body: some View {
+        HStack(spacing: DS.Space.sm) {
+            Text("\(index)")
+                .font(DS.Typo.captionUpper())
+                .tracking(0.5)
+                .foregroundStyle(DS.Color.muted)
+                .frame(width: 24, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.round.word.text)
+                    .font(DS.Typo.titleSM())
+                    .foregroundStyle(DS.Color.ink)
+                Text(roundKindLabel)
+                    .font(DS.Typo.caption())
+                    .foregroundStyle(DS.Color.muted)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
+                Text(result.didWin ? "+\(result.points)" : "—")
+                    .font(DS.Typo.titleSM())
+                    .monospacedDigit()
+                    .foregroundStyle(result.didWin ? DS.Color.ink : DS.Color.muted)
+            }
+        }
+        .padding(.horizontal, DS.Space.md)
+        .padding(.vertical, DS.Space.sm)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.md)
+                .fill(DS.Color.surfaceSoft)
+        )
+    }
+
+    private var roundKindLabel: String {
+        result.round.kind == .aiDraws ? "AI 画 · 你猜" : "你画 · AI 猜"
+    }
+    private var iconName: String {
+        switch result.outcome {
+        case .correct: return "checkmark.circle.fill"
+        case .timedOut: return "clock.badge.exclamationmark"
+        case .skipped: return "forward.fill"
+        }
+    }
+    private var iconColor: Color {
+        switch result.outcome {
+        case .correct: return DS.Color.success
+        case .timedOut: return DS.Color.error
+        case .skipped: return DS.Color.muted
+        }
     }
 }
