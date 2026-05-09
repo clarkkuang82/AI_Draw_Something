@@ -20,6 +20,7 @@ export default defineWorkersConfig({
             DAILY_SPEND_USD_CAP: "5",
             DEV_BYPASS_SECRET: "test-bypass-secret",
             REFERRAL_HMAC_SECRET: "test-referral-secret",
+            ADMIN_TOKEN: "test-admin-token",
           },
         },
       },

@@ -29,6 +29,7 @@ import {
 } from "./attest/verify.js";
 import { iapRedeemRoute, iapWebhookRoute } from "./iap/index.js";
 import { referralCodeRoute, referralRedeemRoute } from "./referral.js";
+import { recordGuessEvent } from "./analytics.js";
 import { z } from "zod";
 
 export { NonceDO } from "./durable/nonce.js";
@@ -51,6 +52,7 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/referral/code") return await referralCodeAttested(req, env);
       if (req.method === "POST" && url.pathname === "/v1/referral/redeem") return await referralRedeemAttested(req, env);
       if (req.method === "GET"  && url.pathname === "/v1/health") return jsonResponse({ ok: true });
+      if (req.method === "GET"  && url.pathname === "/v1/admin/snapshot") return await adminSnapshotRoute(req, env);
       return errorResponse("not_found", 404);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -171,6 +173,7 @@ async function guessRoute(req: Request, env: Env, ctx: ExecutionContext): Promis
   if (!provider) return errorResponse("provider_unconfigured", 503);
 
   // 8. Stream upstream → parse → narrow → emit downstream
+  const startedAt = Date.now();
   return makeSSEResponse(async (emit) => {
     const ac = new AbortController();
     req.signal.addEventListener("abort", () => ac.abort());
@@ -202,7 +205,11 @@ async function guessRoute(req: Request, env: Env, ctx: ExecutionContext): Promis
       upstreamErrored = true;
       throw err;
     } finally {
-      // 9. Bookkeeping: refund on hard error, record spend, log.
+      // 9. Bookkeeping: refund on hard error, record spend + analytics.
+      const usd =
+        (inputTokens / 1_000_000) * provider.priceInputUsdPerM +
+        (outputTokens / 1_000_000) * provider.priceOutputUsdPerM;
+      const latencyMs = Date.now() - startedAt;
       if (upstreamErrored) {
         ctx.waitUntil(
           userStub.fetch("https://e/refund", {
@@ -211,10 +218,16 @@ async function guessRoute(req: Request, env: Env, ctx: ExecutionContext): Promis
             body: JSON.stringify({ reason: debit.reason }),
           })
         );
+        recordGuessEvent(env, {
+          keyId: body.attestation.keyId,
+          provider: body.provider as "anthropic" | "openai",
+          outcome: "refunded",
+          inputTokens,
+          outputTokens,
+          usd: 0,        // refunded means we shouldn't charge
+          latencyMs,
+        });
       } else {
-        const usd =
-          (inputTokens / 1_000_000) * provider.priceInputUsdPerM +
-          (outputTokens / 1_000_000) * provider.priceOutputUsdPerM;
         ctx.waitUntil(
           globalStub.fetch("https://e/recordSpend", {
             method: "POST",
@@ -222,10 +235,47 @@ async function guessRoute(req: Request, env: Env, ctx: ExecutionContext): Promis
             body: JSON.stringify({ usd, cap: dailySpendUsdCap(env) }),
           })
         );
+        recordGuessEvent(env, {
+          keyId: body.attestation.keyId,
+          provider: body.provider as "anthropic" | "openai",
+          outcome: "ok",
+          inputTokens,
+          outputTokens,
+          usd,
+          latencyMs,
+        });
       }
       // The label injection happens *only* server-side. We never send it back.
       void CATEGORY_LABELS[body.hintCategory];
     }
+  });
+}
+
+/// GET /v1/admin/snapshot — Bearer-token-gated read of the global spend
+/// killswitch state. Returns today's USD spend, the configured cap, and the
+/// current ENV. For richer historical queries use Workers Analytics Engine
+/// (binding `EVENTS`); see comments in src/analytics.ts.
+async function adminSnapshotRoute(req: Request, env: Env): Promise<Response> {
+  const expected = env.ADMIN_TOKEN;
+  if (!expected) return errorResponse("admin_disabled", 503);
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth !== `Bearer ${expected}`) {
+    return errorResponse("unauthorized", 401);
+  }
+  const stub = env.ENTITLEMENT.get(env.ENTITLEMENT.idFromName("__global__"));
+  const r = await stub.fetch("https://e/get", { method: "POST", body: "{}" });
+  const e = (await r.json()) as { spendUsdToday?: number; spendDay?: string };
+  return jsonResponse({
+    spend: {
+      todayUsd: e.spendUsdToday ?? 0,
+      day: e.spendDay ?? "",
+      capUsd: dailySpendUsdCap(env),
+      remainingUsd: Math.max(0, dailySpendUsdCap(env) - (e.spendUsdToday ?? 0)),
+    },
+    server: {
+      env: env.ENV,
+      now: new Date().toISOString(),
+    },
   });
 }
 

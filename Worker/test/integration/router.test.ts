@@ -12,6 +12,34 @@ describe("Worker router (integration)", () => {
     expect(j).toEqual({ ok: true });
   });
 
+  it("/v1/admin/snapshot 401s without bearer", async () => {
+    const r = await SELF.fetch("https://w/v1/admin/snapshot");
+    expect(r.status).toBe(401);
+  });
+
+  it("/v1/admin/snapshot 401s with wrong bearer", async () => {
+    const r = await SELF.fetch("https://w/v1/admin/snapshot", {
+      headers: { authorization: "Bearer wrong" },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  it("/v1/admin/snapshot 200s with right bearer and returns spend shape", async () => {
+    const r = await SELF.fetch("https://w/v1/admin/snapshot", {
+      headers: { authorization: "Bearer test-admin-token" },
+    });
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as {
+      spend: { todayUsd: number; capUsd: number; remainingUsd: number; day: string };
+      server: { env: string; now: string };
+    };
+    expect(j.spend).toBeDefined();
+    expect(typeof j.spend.todayUsd).toBe("number");
+    expect(typeof j.spend.capUsd).toBe("number");
+    expect(j.spend.remainingUsd).toBeLessThanOrEqual(j.spend.capUsd);
+    expect(j.server.env).toBe("dev");
+  });
+
   it("unknown route 404s", async () => {
     const r = await SELF.fetch("https://w/v1/nope");
     expect(r.status).toBe(404);

@@ -18,6 +18,8 @@ DAILY_SPEND_USD_CAP = "5"
 #   wrangler secret put REFERRAL_HMAC_SECRET
 # Dev bypass HMAC (DEBUG only):
 #   wrangler secret put DEV_BYPASS_SECRET
+# Admin bearer token for /v1/admin/* operational endpoints:
+#   wrangler secret put ADMIN_TOKEN
 
 [[durable_objects.bindings]]
 name = "NONCE"
@@ -38,3 +40,10 @@ new_sqlite_classes = ["NonceDO", "RateLimitDO", "EntitlementDO"]
 [[kv_namespaces]]
 binding = "KV"
 id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Workers Analytics Engine — free up to 25M data points/month. Each /v1/guess
+# writes one row (keyId, provider, outcome, tokens, USD, latency). Query via
+# the SQL HTTP API or the dashboard, see comments in src/analytics.ts.
+[[analytics_engine_datasets]]
+binding = "EVENTS"
+dataset = "ai_draw_events"

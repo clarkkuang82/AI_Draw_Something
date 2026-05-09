@@ -13,12 +13,18 @@ export interface Env {
   OPENAI_API_KEY?: string;
   REFERRAL_HMAC_SECRET?: string;
   DEV_BYPASS_SECRET?: string;
+  /// Bearer token for /v1/admin/* read-only operational endpoints.
+  /// Generated via: wrangler secret put ADMIN_TOKEN
+  ADMIN_TOKEN?: string;
 
   // bindings
   NONCE: DurableObjectNamespace;
   RATE_LIMIT: DurableObjectNamespace;
   ENTITLEMENT: DurableObjectNamespace;
   KV: KVNamespace;
+  /// Workers Analytics Engine dataset for per-guess token + spend events.
+  /// Optional — guess flow degrades gracefully when missing.
+  EVENTS?: AnalyticsEngineDataset;
 }
 
 export function freeDaily(env: Env): number {
